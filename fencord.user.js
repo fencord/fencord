@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.27
+// @version      1.28
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -814,19 +814,40 @@
         padding: '10px 14px',
         borderRadius: '6px',
         marginBottom: '16px',
-        maxWidth: '420px'
+        width: '100%',
+        boxSizing: 'border-box'
       });
       body.appendChild(notice);
 
+      const pluginGrid = document.createElement('div');
+      Object.assign(pluginGrid.style, {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '12px',
+        width: '100%',
+        alignItems: 'stretch'
+      });
+
+      function stylePluginCard(el) {
+        Object.assign(el.style, {
+          padding: '14px 16px',
+          borderRadius: '8px',
+          background: 'var(--secondary-button)',
+          minWidth: '0',
+          width: '100%',
+          boxSizing: 'border-box',
+          height: '100%'
+        });
+      }
+
+      // --- RGB Usernames ---
       const row = document.createElement('div');
+      stylePluginCard(row);
       Object.assign(row.style, {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '14px 16px',
-        borderRadius: '8px',
-        background: 'var(--secondary-button)',
-        maxWidth: '420px'
+        gap: '12px'
       });
 
       const label = document.createElement('div');
@@ -867,19 +888,12 @@
       });
 
       row.appendChild(toggle);
-      body.appendChild(row);
+      pluginGrid.appendChild(row);
 
-      // --- Font plugin section ---
-      const fontDivider = document.createElement('div');
-      Object.assign(fontDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(fontDivider);
-
+      // --- Font ---
       const fontSection = document.createElement('div');
+      stylePluginCard(fontSection);
       Object.assign(fontSection.style, {
-        padding: '14px 16px',
-        borderRadius: '8px',
-        background: 'var(--secondary-button)',
-        maxWidth: '420px',
         display: 'flex',
         flexDirection: 'column',
         gap: '10px'
@@ -897,7 +911,9 @@
         border: '1px solid var(--borders-and-separators)',
         background: 'var(--popups-and-modals)',
         color: 'var(--text-primary)',
-        cursor: 'pointer'
+        cursor: 'pointer',
+        width: '100%',
+        boxSizing: 'border-box'
       });
       getPresetFonts().forEach(f => {
         const opt = document.createElement('option');
@@ -905,7 +921,6 @@
         opt.textContent = f.label;
         fontSelect.appendChild(opt);
       });
-      // Reflect current selection if it matches a preset
       if (savedFont) {
         const match = getPresetFonts().find(f => f.label === savedFont.label);
         if (match) fontSelect.value = match.id;
@@ -926,6 +941,7 @@
       customInput.placeholder = 'Custom Google Font name…';
       Object.assign(customInput.style, {
         flex: '1',
+        minWidth: '0',
         padding: '8px',
         borderRadius: '6px',
         border: '1px solid var(--borders-and-separators)',
@@ -961,17 +977,15 @@
       Object.assign(fontHint.style, { fontSize: '11px', color: 'var(--text-muted)' });
       fontSection.appendChild(fontHint);
 
-      body.appendChild(fontSection);
+      pluginGrid.appendChild(fontSection);
 
-      // --- Display Name Override section ---
-      const nameDivider = document.createElement('div');
-      Object.assign(nameDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(nameDivider);
-
+      // --- Display Name Override ---
       const nameSection = document.createElement('div');
+      stylePluginCard(nameSection);
       Object.assign(nameSection.style, {
-        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)',
-        maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '10px'
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px'
       });
 
       const currentOverride = getDisplayNameOverride();
@@ -987,7 +1001,7 @@
       nameInput.placeholder = 'Your real username (as shown in chat)';
       nameInput.value = getMyRealUsername() || '';
       Object.assign(nameInput.style, {
-        flex: '1', padding: '8px', borderRadius: '6px',
+        flex: '1', minWidth: '0', padding: '8px', borderRadius: '6px',
         border: '1px solid var(--borders-and-separators)',
         background: 'var(--popups-and-modals)', color: 'var(--text-primary)'
       });
@@ -1002,7 +1016,7 @@
       overrideInput.placeholder = 'Show as…';
       overrideInput.value = currentOverride;
       Object.assign(overrideInput.style, {
-        flex: '1', padding: '8px', borderRadius: '6px',
+        flex: '1', minWidth: '0', padding: '8px', borderRadius: '6px',
         border: '1px solid var(--borders-and-separators)',
         background: 'var(--popups-and-modals)', color: 'var(--text-primary)'
       });
@@ -1040,17 +1054,15 @@
         nameSection.appendChild(clearBtn);
       }
 
-      body.appendChild(nameSection);
+      pluginGrid.appendChild(nameSection);
 
-      // --- Timestamp Format section ---
-      const tsDivider = document.createElement('div');
-      Object.assign(tsDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(tsDivider);
-
+      // --- Timestamp Format ---
       const tsSection = document.createElement('div');
+      stylePluginCard(tsSection);
       Object.assign(tsSection.style, {
-        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)',
-        maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '10px'
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px'
       });
 
       const tsLabel = document.createElement('div');
@@ -1061,7 +1073,8 @@
       Object.assign(tsSelect.style, {
         padding: '8px', borderRadius: '6px',
         border: '1px solid var(--borders-and-separators)',
-        background: 'var(--popups-and-modals)', color: 'var(--text-primary)', cursor: 'pointer'
+        background: 'var(--popups-and-modals)', color: 'var(--text-primary)', cursor: 'pointer',
+        width: '100%', boxSizing: 'border-box'
       });
       [
         { id: 'default', label: 'Default (app default)' },
@@ -1079,17 +1092,13 @@
         setTimestampFormat(tsSelect.value);
       });
       tsSection.appendChild(tsSelect);
-      body.appendChild(tsSection);
+      pluginGrid.appendChild(tsSection);
 
-      // --- Image Blur / Spoiler section ---
-      const blurDivider = document.createElement('div');
-      Object.assign(blurDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(blurDivider);
-
+      // --- Image Blur ---
       const blurRow = document.createElement('div');
+      stylePluginCard(blurRow);
       Object.assign(blurRow.style, {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px'
       });
 
       const blurLabel = document.createElement('div');
@@ -1119,17 +1128,13 @@
       });
 
       blurRow.appendChild(blurToggle);
-      body.appendChild(blurRow);
+      pluginGrid.appendChild(blurRow);
 
-      // --- Call Timer section ---
-      const callDivider = document.createElement('div');
-      Object.assign(callDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(callDivider);
-
+      // --- Call Timer ---
       const callRow = document.createElement('div');
+      stylePluginCard(callRow);
       Object.assign(callRow.style, {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px'
       });
 
       const callLabel = document.createElement('div');
@@ -1161,8 +1166,10 @@
       });
 
       callRow.appendChild(callToggle);
-      body.appendChild(callRow);
-      body.appendChild(makeCreditNote());
+      pluginGrid.appendChild(callRow);
+
+      body.appendChild(pluginGrid);
+      body.appendChild(makeCreditNote({ maxWidth: '100%' }));
     }
 
     function renderPanel() {
@@ -2143,7 +2150,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.27';
+  const CURRENT_VERSION = '1.28';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
