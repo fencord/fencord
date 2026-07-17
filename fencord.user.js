@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.23
+// @version      1.24
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1086,127 +1086,44 @@
       blurRow.appendChild(blurToggle);
       body.appendChild(blurRow);
 
-      // --- Matrix Background section ---
-      const matrixDivider = document.createElement('div');
-      Object.assign(matrixDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(matrixDivider);
+      // --- Background Effect (Matrix / Rain / Fire) ---
+      const fxDivider = document.createElement('div');
+      Object.assign(fxDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
+      body.appendChild(fxDivider);
 
-      const matrixRow = document.createElement('div');
-      Object.assign(matrixRow.style, {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
+      const fxSection = document.createElement('div');
+      Object.assign(fxSection.style, {
+        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)',
+        maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '10px'
       });
 
-      const matrixLabel = document.createElement('div');
-      matrixLabel.innerHTML = `<div style="font-weight:600;">Matrix Background</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Digital rain behind the app — color from theme <code style="font-size:11px;">--matrix-rain</code></div>`;
-      matrixRow.appendChild(matrixLabel);
+      const fxLabel = document.createElement('div');
+      fxLabel.innerHTML = `<div style="font-weight:600;">Background Effect</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Animated backdrop behind the app (one at a time)</div>`;
+      fxSection.appendChild(fxLabel);
 
-      const matrixToggle = document.createElement('div');
-      const matrixEnabled = isMatrixBgEnabled();
-      Object.assign(matrixToggle.style, {
-        width: '42px', height: '24px', borderRadius: '12px',
-        background: matrixEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
-        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+      const fxSelect = document.createElement('select');
+      Object.assign(fxSelect.style, {
+        padding: '8px', borderRadius: '6px',
+        border: '1px solid var(--borders-and-separators)',
+        background: 'var(--popups-and-modals)', color: 'var(--text-primary)', cursor: 'pointer'
       });
-
-      const matrixKnob = document.createElement('div');
-      Object.assign(matrixKnob.style, {
-        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
-        position: 'absolute', top: '3px', left: matrixEnabled ? '21px' : '3px', transition: 'left 0.15s'
+      [
+        { id: 'none', label: 'None' },
+        { id: 'matrix', label: 'Matrix — digital rain (--matrix-rain)' },
+        { id: 'rain', label: 'Rain — falling streaks (theme accent)' },
+        { id: 'fire', label: 'Fire — rising embers (warm / accent)' }
+      ].forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.id;
+        opt.textContent = o.label;
+        fxSelect.appendChild(opt);
       });
-      matrixToggle.appendChild(matrixKnob);
-
-      matrixToggle.addEventListener('click', () => {
-        const newState = !isMatrixBgEnabled();
-        setMatrixBgEnabled(newState);
-        matrixToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
-        matrixKnob.style.left = newState ? '21px' : '3px';
-        // Rain is turned off when Matrix is on — refresh that toggle too.
-        renderPanel();
+      fxSelect.value = getBackgroundEffect();
+      fxSelect.addEventListener('change', () => {
+        setBackgroundEffect(fxSelect.value);
       });
-
-      matrixRow.appendChild(matrixToggle);
-      body.appendChild(matrixRow);
-
-      // --- Rain Background section ---
-      const rainDivider = document.createElement('div');
-      Object.assign(rainDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(rainDivider);
-
-      const rainRow = document.createElement('div');
-      Object.assign(rainRow.style, {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
-      });
-
-      const rainLabel = document.createElement('div');
-      rainLabel.innerHTML = `<div style="font-weight:600;">Rain Background</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Falling rain streaks behind the app (uses theme accent color)</div>`;
-      rainRow.appendChild(rainLabel);
-
-      const rainToggle = document.createElement('div');
-      const rainEnabled = isRainBgEnabled();
-      Object.assign(rainToggle.style, {
-        width: '42px', height: '24px', borderRadius: '12px',
-        background: rainEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
-        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
-      });
-
-      const rainKnob = document.createElement('div');
-      Object.assign(rainKnob.style, {
-        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
-        position: 'absolute', top: '3px', left: rainEnabled ? '21px' : '3px', transition: 'left 0.15s'
-      });
-      rainToggle.appendChild(rainKnob);
-
-      rainToggle.addEventListener('click', () => {
-        const newState = !isRainBgEnabled();
-        setRainBgEnabled(newState);
-        rainToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
-        rainKnob.style.left = newState ? '21px' : '3px';
-        // Matrix is turned off when Rain is on — refresh that toggle too.
-        renderPanel();
-      });
-
-      rainRow.appendChild(rainToggle);
-      body.appendChild(rainRow);
-
-      // --- Fire Background section ---
-      const fireDivider = document.createElement('div');
-      Object.assign(fireDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(fireDivider);
-
-      const fireRow = document.createElement('div');
-      Object.assign(fireRow.style, {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
-      });
-
-      const fireLabel = document.createElement('div');
-      fireLabel.innerHTML = `<div style="font-weight:600;">Fire Background</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Rising embers behind the app (uses theme accent / warm colors)</div>`;
-      fireRow.appendChild(fireLabel);
-
-      const fireToggle = document.createElement('div');
-      const fireEnabled = isFireBgEnabled();
-      Object.assign(fireToggle.style, {
-        width: '42px', height: '24px', borderRadius: '12px',
-        background: fireEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
-        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
-      });
-
-      const fireKnob = document.createElement('div');
-      Object.assign(fireKnob.style, {
-        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
-        position: 'absolute', top: '3px', left: fireEnabled ? '21px' : '3px', transition: 'left 0.15s'
-      });
-      fireToggle.appendChild(fireKnob);
-
-      fireToggle.addEventListener('click', () => {
-        setFireBgEnabled(!isFireBgEnabled());
-        renderPanel();
-      });
-
-      fireRow.appendChild(fireToggle);
-      body.appendChild(fireRow);
+      fxSection.appendChild(fxSelect);
+      body.appendChild(fxSection);
 
       // --- Call Timer section ---
       const callDivider = document.createElement('div');
@@ -1641,12 +1558,42 @@
   }
 
   // ---------------------------------------------------------------
-  // MATRIX BACKGROUND PLUGIN
-  // Full-screen canvas digital rain behind Fenrid, with translucent
-  // panel backgrounds so the effect shows through.
+  // BACKGROUND EFFECTS (Matrix / Rain / Fire)
+  // One shared dropdown selects a single animated backdrop.
   // ---------------------------------------------------------------
 
-  const MATRIX_BG_KEY = 'fencord-matrix-bg';
+  const BG_EFFECT_KEY = 'fencord-bg-effect';
+  const MATRIX_BG_KEY = 'fencord-matrix-bg'; // legacy
+  const RAIN_BG_KEY = 'fencord-rain-bg'; // legacy
+  const FIRE_BG_KEY = 'fencord-fire-bg'; // legacy
+
+  function getBackgroundEffect() {
+    const saved = localStorage.getItem(BG_EFFECT_KEY);
+    if (saved === 'none' || saved === 'matrix' || saved === 'rain' || saved === 'fire') return saved;
+    // Migrate old per-effect toggles.
+    if (localStorage.getItem(MATRIX_BG_KEY) === 'true') return 'matrix';
+    if (localStorage.getItem(RAIN_BG_KEY) === 'true') return 'rain';
+    if (localStorage.getItem(FIRE_BG_KEY) === 'true') return 'fire';
+    return 'none';
+  }
+
+  function setBackgroundEffect(effect) {
+    const next = (effect === 'matrix' || effect === 'rain' || effect === 'fire') ? effect : 'none';
+    localStorage.setItem(BG_EFFECT_KEY, next);
+    localStorage.removeItem(MATRIX_BG_KEY);
+    localStorage.removeItem(RAIN_BG_KEY);
+    localStorage.removeItem(FIRE_BG_KEY);
+
+    stopMatrixBg();
+    stopRainBg();
+    stopFireBg();
+
+    if (next === 'matrix') startMatrixBg();
+    else if (next === 'rain') startRainBg();
+    else if (next === 'fire') startFireBg();
+    else applyTheme(getSavedTheme());
+  }
+
   const MATRIX_CANVAS_ID = 'fencord-matrix-canvas';
   const MATRIX_STYLE_ID = 'fencord-matrix-style';
   const MATRIX_CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -1654,10 +1601,6 @@
   let matrixRaf = null;
   let matrixResizeHandler = null;
   let matrixDrops = null;
-
-  function isMatrixBgEnabled() {
-    return localStorage.getItem(MATRIX_BG_KEY) === 'true';
-  }
 
   function stopMatrixBg() {
     if (matrixRaf != null) {
@@ -1731,35 +1674,17 @@
     matrixRaf = requestAnimationFrame(draw);
   }
 
-  function setMatrixBgEnabled(enabled) {
-    localStorage.setItem(MATRIX_BG_KEY, enabled ? 'true' : 'false');
-    if (enabled) {
-      if (isRainBgEnabled()) setRainBgEnabled(false);
-      if (isFireBgEnabled()) setFireBgEnabled(false);
-      startMatrixBg();
-    } else {
-      stopMatrixBg();
-      if (!isRainBgEnabled() && !isFireBgEnabled()) applyTheme(getSavedTheme());
-    }
-  }
-
   // ---------------------------------------------------------------
-  // RAIN BACKGROUND PLUGIN
-  // Weather-style falling rain streaks behind Fenrid (same canvas
-  // approach as Matrix). Uses theme accent for drop color.
+  // RAIN BACKGROUND
+  // Weather-style falling rain streaks (theme accent for drop color).
   // ---------------------------------------------------------------
 
-  const RAIN_BG_KEY = 'fencord-rain-bg';
   const RAIN_CANVAS_ID = 'fencord-rain-canvas';
   const RAIN_STYLE_ID = 'fencord-rain-style';
 
   let rainRaf = null;
   let rainResizeHandler = null;
   let rainDrops = null;
-
-  function isRainBgEnabled() {
-    return localStorage.getItem(RAIN_BG_KEY) === 'true';
-  }
 
   function getRainColor() {
     const vars = getActiveThemeVars();
@@ -1862,35 +1787,17 @@
     rainRaf = requestAnimationFrame(draw);
   }
 
-  function setRainBgEnabled(enabled) {
-    localStorage.setItem(RAIN_BG_KEY, enabled ? 'true' : 'false');
-    if (enabled) {
-      if (isMatrixBgEnabled()) setMatrixBgEnabled(false);
-      if (isFireBgEnabled()) setFireBgEnabled(false);
-      startRainBg();
-    } else {
-      stopRainBg();
-      if (!isMatrixBgEnabled() && !isFireBgEnabled()) applyTheme(getSavedTheme());
-    }
-  }
-
   // ---------------------------------------------------------------
-  // FIRE BACKGROUND PLUGIN
-  // Rising ember/flame particles behind Fenrid (same canvas approach
-  // as Matrix/Rain). Uses warm theme accents when available.
+  // FIRE BACKGROUND
+  // Rising ember/flame particles (warm theme accents when available).
   // ---------------------------------------------------------------
 
-  const FIRE_BG_KEY = 'fencord-fire-bg';
   const FIRE_CANVAS_ID = 'fencord-fire-canvas';
   const FIRE_STYLE_ID = 'fencord-fire-style';
 
   let fireRaf = null;
   let fireResizeHandler = null;
   let fireParticles = null;
-
-  function isFireBgEnabled() {
-    return localStorage.getItem(FIRE_BG_KEY) === 'true';
-  }
 
   function getFireColors() {
     const vars = getActiveThemeVars();
@@ -2007,18 +1914,6 @@
     }
 
     fireRaf = requestAnimationFrame(draw);
-  }
-
-  function setFireBgEnabled(enabled) {
-    localStorage.setItem(FIRE_BG_KEY, enabled ? 'true' : 'false');
-    if (enabled) {
-      if (isMatrixBgEnabled()) setMatrixBgEnabled(false);
-      if (isRainBgEnabled()) setRainBgEnabled(false);
-      startFireBg();
-    } else {
-      stopFireBg();
-      if (!isMatrixBgEnabled() && !isRainBgEnabled()) applyTheme(getSavedTheme());
-    }
   }
 
   // ---------------------------------------------------------------
@@ -2207,7 +2102,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.23';
+  const CURRENT_VERSION = '1.24';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2527,9 +2422,7 @@
     if (getDisplayNameOverride()) setDisplayNameEnabled(true);
     initTimestampFormat();
     if (isImageBlurEnabled()) setImageBlurEnabled(true);
-    if (isMatrixBgEnabled()) setMatrixBgEnabled(true);
-    else if (isRainBgEnabled()) setRainBgEnabled(true);
-    else if (isFireBgEnabled()) setFireBgEnabled(true);
+    setBackgroundEffect(getBackgroundEffect());
     // Call Timer is marked non-working; do not auto-start even if previously enabled.
     // if (isCallTimerEnabled()) setCallTimerEnabled(true);
     createFencordWatermark();
