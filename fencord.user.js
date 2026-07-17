@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.10
+// @version      1.11
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -602,7 +602,8 @@
     { id: 'jetbrains', label: 'JetBrains Mono', family: "'JetBrains Mono', monospace", googleName: 'JetBrains+Mono:wght@400;600;700' },
     { id: 'comicneue', label: 'Comic Neue', family: "'Comic Neue', cursive", googleName: 'Comic+Neue:wght@400;700' },
     { id: 'pressstart', label: 'Press Start 2P', family: "'Press Start 2P', system-ui", googleName: 'Press+Start+2P' },
-    { id: 'spacemono', label: 'Space Mono', family: "'Space Mono', monospace", googleName: 'Space+Mono:wght@400;700' }
+    { id: 'spacemono', label: 'Space Mono', family: "'Space Mono', monospace", googleName: 'Space+Mono:wght@400;700' },
+    { id: 'couriernew', label: 'Courier New', family: "'Courier New', Courier, monospace", googleName: null }
   ];
 
   function getSavedFont() {
@@ -1798,7 +1799,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.10';
+  const CURRENT_VERSION = '1.11';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
