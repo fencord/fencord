@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.25
+// @version      1.26
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -2103,11 +2103,11 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.25';
+  const CURRENT_VERSION = '1.26';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
-  const SCRIPT_UPDATE_URL = `${REPO_RAW_BASE}/fencord.user.js`;
+  const SCRIPT_UPDATE_URL = 'https://github.com/fencord/fencord/raw/main/fencord.user.js';
   const THEMES_URL = `${REPO_RAW_BASE}/themes.json`;
   const FONTS_URL = `${REPO_RAW_BASE}/fonts.json`;
   const REPO_PAGE_URL = 'https://github.com/fencord/fencord';
@@ -2284,7 +2284,7 @@
     banner.appendChild(bodyText);
 
     const urlText = document.createElement('div');
-    urlText.textContent = REPO_PAGE_URL;
+    urlText.textContent = SCRIPT_UPDATE_URL;
     Object.assign(urlText.style, {
       fontFamily: 'monospace',
       fontSize: '12px',
@@ -2299,18 +2299,18 @@
     const btnRow = document.createElement('div');
     Object.assign(btnRow.style, { display: 'flex', gap: '10px', marginTop: '4px' });
 
-    const yesBtn = document.createElement('div');
-    yesBtn.textContent = 'Yes, take me there';
+    const yesBtn = document.createElement('a');
+    yesBtn.textContent = 'Yes, install update';
+    yesBtn.href = SCRIPT_UPDATE_URL;
+    yesBtn.target = '_blank';
+    yesBtn.rel = 'noopener noreferrer';
     Object.assign(yesBtn.style, {
       padding: '7px 14px', borderRadius: '6px', cursor: 'pointer',
       background: 'var(--primary-action)', color: 'var(--primary-foreground)',
-      fontWeight: 'bold', fontSize: '12px'
+      fontWeight: 'bold', fontSize: '12px', textDecoration: 'none', display: 'inline-block'
     });
     yesBtn.addEventListener('mouseenter', () => yesBtn.style.background = 'var(--primary-hover)');
     yesBtn.addEventListener('mouseleave', () => yesBtn.style.background = 'var(--primary-action)');
-    yesBtn.addEventListener('click', () => {
-      window.open(SCRIPT_UPDATE_URL, '_blank', 'noopener,noreferrer');
-    });
     btnRow.appendChild(yesBtn);
 
     const noBtn = document.createElement('div');
