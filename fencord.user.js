@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.34
+// @version      1.35
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1165,6 +1165,38 @@
           const next = !isSoftTapsEnabled();
           setSoftTapsEnabled(next);
           return next;
+        },
+        build: (controls, styleField) => {
+          const styleSelect = document.createElement('select');
+          styleField(styleSelect);
+          styleSelect.style.cursor = 'pointer';
+          getSoftTapStyles().forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.label;
+            styleSelect.appendChild(opt);
+          });
+          styleSelect.value = getSoftTapStyle();
+          styleSelect.addEventListener('change', () => {
+            setSoftTapStyle(styleSelect.value);
+            if (isSoftTapsEnabled()) playSoftTap({ kind: 'click' });
+          });
+          controls.appendChild(styleSelect);
+
+          const triggerSelect = document.createElement('select');
+          styleField(triggerSelect);
+          triggerSelect.style.cursor = 'pointer';
+          getSoftTapTriggers().forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.label;
+            triggerSelect.appendChild(opt);
+          });
+          triggerSelect.value = getSoftTapTrigger();
+          triggerSelect.addEventListener('change', () => {
+            setSoftTapTrigger(triggerSelect.value);
+          });
+          controls.appendChild(triggerSelect);
         }
       });
 
@@ -1758,14 +1790,54 @@
   // ---------------------------------------------------------------
 
   const SOFT_TAPS_KEY = 'fencord-soft-taps';
+  const SOFT_TAP_STYLE_KEY = 'fencord-soft-tap-style';
+  const SOFT_TAP_TRIGGER_KEY = 'fencord-soft-tap-trigger';
+
+  const SOFT_TAP_STYLES = [
+    { id: 'soft', label: 'Soft — gentle triangle tick' },
+    { id: 'clicky', label: 'Clicky — sharp plastic click' },
+    { id: 'thock', label: 'Thock — deep low tap' },
+    { id: 'glass', label: 'Glass — bright sparkle' },
+    { id: 'popcorn', label: 'Popcorn — tiny high pops' },
+    { id: 'typewriter', label: 'Typewriter — mid mechanical clack' }
+  ];
+
+  const SOFT_TAP_TRIGGERS = [
+    { id: 'both', label: 'Play on typing + clicks' },
+    { id: 'keys', label: 'Typing only' },
+    { id: 'clicks', label: 'Clicks only' }
+  ];
 
   let softTapsCtx = null;
   let softTapsKeyHandler = null;
   let softTapsClickHandler = null;
   let softTapsLastAt = 0;
 
+  function getSoftTapStyles() { return SOFT_TAP_STYLES; }
+  function getSoftTapTriggers() { return SOFT_TAP_TRIGGERS; }
+
   function isSoftTapsEnabled() {
     return localStorage.getItem(SOFT_TAPS_KEY) === 'true';
+  }
+
+  function getSoftTapStyle() {
+    const id = localStorage.getItem(SOFT_TAP_STYLE_KEY) || 'soft';
+    return SOFT_TAP_STYLES.some(s => s.id === id) ? id : 'soft';
+  }
+
+  function setSoftTapStyle(id) {
+    const next = SOFT_TAP_STYLES.some(s => s.id === id) ? id : 'soft';
+    localStorage.setItem(SOFT_TAP_STYLE_KEY, next);
+  }
+
+  function getSoftTapTrigger() {
+    const id = localStorage.getItem(SOFT_TAP_TRIGGER_KEY) || 'both';
+    return SOFT_TAP_TRIGGERS.some(t => t.id === id) ? id : 'both';
+  }
+
+  function setSoftTapTrigger(id) {
+    const next = SOFT_TAP_TRIGGERS.some(t => t.id === id) ? id : 'both';
+    localStorage.setItem(SOFT_TAP_TRIGGER_KEY, next);
   }
 
   function ensureSoftTapsAudio() {
@@ -1778,6 +1850,71 @@
     return softTapsCtx;
   }
 
+  function softTapProfile(kind) {
+    const style = getSoftTapStyle();
+    const click = kind === 'click';
+    // freqStart, freqEnd, type, filterHz, peak, dur
+    if (style === 'clicky') {
+      return {
+        type: 'square',
+        freqStart: click ? 1400 : 1900,
+        freqEnd: click ? 520 : 700,
+        filterHz: 4200,
+        peak: click ? 0.03 : 0.022,
+        dur: 0.035
+      };
+    }
+    if (style === 'thock') {
+      return {
+        type: 'sine',
+        freqStart: click ? 220 : 280,
+        freqEnd: click ? 90 : 110,
+        filterHz: 900,
+        peak: click ? 0.07 : 0.055,
+        dur: 0.09
+      };
+    }
+    if (style === 'glass') {
+      return {
+        type: 'sine',
+        freqStart: click ? 2400 : 3200,
+        freqEnd: click ? 1200 : 1600,
+        filterHz: 6000,
+        peak: click ? 0.028 : 0.02,
+        dur: 0.06
+      };
+    }
+    if (style === 'popcorn') {
+      return {
+        type: 'triangle',
+        freqStart: click ? 2100 : 2600,
+        freqEnd: click ? 900 : 1100,
+        filterHz: 5000,
+        peak: click ? 0.025 : 0.018,
+        dur: 0.025
+      };
+    }
+    if (style === 'typewriter') {
+      return {
+        type: 'sawtooth',
+        freqStart: click ? 700 : 900,
+        freqEnd: click ? 240 : 320,
+        filterHz: 1800,
+        peak: click ? 0.04 : 0.03,
+        dur: 0.05
+      };
+    }
+    // soft (default)
+    return {
+      type: 'triangle',
+      freqStart: click ? 620 : 880,
+      freqEnd: click ? 280 : 420,
+      filterHz: 2400,
+      peak: click ? 0.045 : 0.032,
+      dur: 0.055
+    };
+  }
+
   function playSoftTap({ kind = 'key' } = {}) {
     const ctx = ensureSoftTapsAudio();
     if (!ctx) return;
@@ -1788,28 +1925,28 @@
     if (now - softTapsLastAt < minGap) return;
     softTapsLastAt = now;
 
+    const profile = softTapProfile(kind);
     const t0 = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
 
-    // Soft tick: higher for keys, a touch lower for clicks.
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(kind === 'click' ? 620 : 880, t0);
-    osc.frequency.exponentialRampToValueAtTime(kind === 'click' ? 280 : 420, t0 + 0.045);
+    osc.type = profile.type;
+    osc.frequency.setValueAtTime(profile.freqStart, t0);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(40, profile.freqEnd), t0 + profile.dur * 0.85);
 
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(2400, t0);
+    filter.frequency.setValueAtTime(profile.filterHz, t0);
 
     gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(kind === 'click' ? 0.045 : 0.032, t0 + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.055);
+    gain.gain.exponentialRampToValueAtTime(profile.peak, t0 + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + profile.dur);
 
     osc.connect(filter);
     filter.connect(gain);
     gain.connect(ctx.destination);
     osc.start(t0);
-    osc.stop(t0 + 0.07);
+    osc.stop(t0 + profile.dur + 0.02);
   }
 
   function startSoftTaps() {
@@ -1817,6 +1954,8 @@
 
     softTapsKeyHandler = (e) => {
       if (!isSoftTapsEnabled()) return;
+      const trigger = getSoftTapTrigger();
+      if (trigger === 'clicks') return;
       if (e.repeat) return;
       if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
       playSoftTap({ kind: 'key' });
@@ -1824,6 +1963,8 @@
 
     softTapsClickHandler = (e) => {
       if (!isSoftTapsEnabled()) return;
+      const trigger = getSoftTapTrigger();
+      if (trigger === 'keys') return;
       if (typeof e.button === 'number' && e.button !== 0) return;
       playSoftTap({ kind: 'click' });
     };
@@ -2502,7 +2643,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.34';
+  const CURRENT_VERSION = '1.35';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
