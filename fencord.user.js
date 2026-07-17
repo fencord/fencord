@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.31
+// @version      1.32
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -970,19 +970,16 @@
     function renderPluginsTab(body) {
       if (updateCheckResult && updateCheckResult.available) {
         const banner = buildUpdateBanner({ dismissible: true, compact: true });
-        Object.assign(banner.style, { marginBottom: '16px' });
+        Object.assign(banner.style, { marginBottom: '14px', maxWidth: '100%' });
         body.appendChild(banner);
       }
 
       const notice = document.createElement('div');
-      notice.textContent = '💡 If a toggle doesn\'t fully undo (e.g. RGB Usernames), refresh the page to clean it up.';
+      notice.textContent = 'If a toggle doesn\'t fully undo (e.g. RGB Usernames), refresh the page.';
       Object.assign(notice.style, {
         fontSize: '12px',
         color: 'var(--text-muted)',
-        background: 'var(--hover-overlay)',
-        padding: '10px 14px',
-        borderRadius: '6px',
-        marginBottom: '16px',
+        padding: '0 2px 12px',
         width: '100%',
         boxSizing: 'border-box'
       });
@@ -991,396 +988,353 @@
       const pluginGrid = document.createElement('div');
       Object.assign(pluginGrid.style, {
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '12px',
+        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        gap: '10px',
         width: '100%',
         alignItems: 'stretch'
       });
 
-      function stylePluginCard(el) {
+      function styleField(el) {
         Object.assign(el.style, {
-          padding: '14px 16px',
-          borderRadius: '8px',
+          width: '100%',
+          minWidth: '0',
+          padding: '8px 10px',
+          borderRadius: '6px',
+          border: '1px solid var(--borders-and-separators)',
+          background: 'var(--popups-and-modals)',
+          color: 'var(--text-primary)',
+          boxSizing: 'border-box',
+          fontSize: '13px'
+        });
+      }
+
+      function makeToggle(enabled, onChange, { dimmed = false } = {}) {
+        const toggle = document.createElement('div');
+        Object.assign(toggle.style, {
+          width: '42px',
+          height: '24px',
+          borderRadius: '12px',
+          background: enabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
+          position: 'relative',
+          cursor: 'pointer',
+          flexShrink: '0',
+          transition: 'background 0.15s',
+          opacity: dimmed ? '0.45' : '1'
+        });
+        const knob = document.createElement('div');
+        Object.assign(knob.style, {
+          width: '18px',
+          height: '18px',
+          borderRadius: '50%',
+          background: '#fff',
+          position: 'absolute',
+          top: '3px',
+          left: enabled ? '21px' : '3px',
+          transition: 'left 0.15s'
+        });
+        toggle.appendChild(knob);
+        toggle.addEventListener('click', () => {
+          const next = onChange();
+          toggle.style.background = next ? 'var(--primary-action)' : 'var(--borders-and-separators)';
+          knob.style.left = next ? '21px' : '3px';
+        });
+        return toggle;
+      }
+
+      function makePluginCard({ title, desc, badge, enabled, onToggle, dimmed, wide, build }) {
+        const card = document.createElement('div');
+        Object.assign(card.style, {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          padding: '14px',
+          borderRadius: '10px',
           background: 'var(--secondary-button)',
+          border: '1px solid var(--borders-and-separators)',
           minWidth: '0',
           width: '100%',
           boxSizing: 'border-box',
-          height: '100%'
+          minHeight: onToggle && !build ? '92px' : '0',
+          gridColumn: wide ? '1 / -1' : 'auto'
         });
-      }
 
-      // --- RGB Usernames ---
-      const row = document.createElement('div');
-      stylePluginCard(row);
-      Object.assign(row.style, {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '12px'
-      });
-
-      const label = document.createElement('div');
-      label.innerHTML = `<div style="font-weight:600;">RGB Usernames</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Cycles usernames through rainbow colors</div>`;
-      row.appendChild(label);
-
-      const toggle = document.createElement('div');
-      const enabled = isRgbEnabled();
-      Object.assign(toggle.style, {
-        width: '42px',
-        height: '24px',
-        borderRadius: '12px',
-        background: enabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
-        position: 'relative',
-        cursor: 'pointer',
-        flexShrink: '0',
-        transition: 'background 0.15s'
-      });
-
-      const knob = document.createElement('div');
-      Object.assign(knob.style, {
-        width: '18px',
-        height: '18px',
-        borderRadius: '50%',
-        background: '#fff',
-        position: 'absolute',
-        top: '3px',
-        left: enabled ? '21px' : '3px',
-        transition: 'left 0.15s'
-      });
-      toggle.appendChild(knob);
-
-      toggle.addEventListener('click', () => {
-        const newState = !isRgbEnabled();
-        setRgbEnabled(newState);
-        toggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
-        knob.style.left = newState ? '21px' : '3px';
-      });
-
-      row.appendChild(toggle);
-      pluginGrid.appendChild(row);
-
-      // --- Font ---
-      const fontSection = document.createElement('div');
-      stylePluginCard(fontSection);
-      Object.assign(fontSection.style, {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px'
-      });
-
-      const fontLabel = document.createElement('div');
-      const savedFont = getSavedFont();
-      const fontTitle = document.createElement('div');
-      fontTitle.style.fontWeight = '600';
-      fontTitle.textContent = 'Font';
-      const fontSub = document.createElement('div');
-      Object.assign(fontSub.style, { fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' });
-      fontSub.textContent = savedFont
-        ? `Change the app-wide font — currently: ${savedFont.label}`
-        : 'Change the app-wide font';
-      fontLabel.appendChild(fontTitle);
-      fontLabel.appendChild(fontSub);
-      fontSection.appendChild(fontLabel);
-
-      const fontSelect = document.createElement('select');
-      Object.assign(fontSelect.style, {
-        padding: '8px',
-        borderRadius: '6px',
-        border: '1px solid var(--borders-and-separators)',
-        background: 'var(--popups-and-modals)',
-        color: 'var(--text-primary)',
-        cursor: 'pointer',
-        width: '100%',
-        boxSizing: 'border-box'
-      });
-      getPresetFonts().forEach(f => {
-        const opt = document.createElement('option');
-        opt.value = f.id;
-        opt.textContent = f.label;
-        fontSelect.appendChild(opt);
-      });
-      if (savedFont) {
-        const match = getPresetFonts().find(f => f.label === savedFont.label);
-        if (match) fontSelect.value = match.id;
-      } else {
-        fontSelect.value = 'default';
-      }
-      fontSelect.addEventListener('change', () => {
-        setPresetFont(fontSelect.value);
-        renderPanel();
-      });
-      fontSection.appendChild(fontSelect);
-
-      const customRow = document.createElement('div');
-      Object.assign(customRow.style, { display: 'flex', gap: '8px' });
-
-      const customInput = document.createElement('input');
-      customInput.type = 'text';
-      customInput.placeholder = 'Custom Google Font name…';
-      Object.assign(customInput.style, {
-        flex: '1',
-        minWidth: '0',
-        padding: '8px',
-        borderRadius: '6px',
-        border: '1px solid var(--borders-and-separators)',
-        background: 'var(--popups-and-modals)',
-        color: 'var(--text-primary)'
-      });
-      customRow.appendChild(customInput);
-
-      const customBtn = document.createElement('div');
-      customBtn.textContent = 'Apply';
-      Object.assign(customBtn.style, {
-        padding: '8px 14px',
-        borderRadius: '6px',
-        cursor: 'pointer',
-        background: 'var(--primary-action)',
-        color: 'var(--primary-foreground)',
-        fontWeight: 'bold',
-        whiteSpace: 'nowrap'
-      });
-      customBtn.addEventListener('mouseenter', () => customBtn.style.background = 'var(--primary-hover)');
-      customBtn.addEventListener('mouseleave', () => customBtn.style.background = 'var(--primary-action)');
-      customBtn.addEventListener('click', () => {
-        if (!customInput.value.trim()) return;
-        setCustomFont(customInput.value);
-        if (getSavedFont()) renderPanel();
-      });
-      customRow.appendChild(customBtn);
-
-      fontSection.appendChild(customRow);
-
-      const fontHint = document.createElement('div');
-      fontHint.textContent = 'Must be an exact Google Fonts name, e.g. "Roboto Slab" or "Bebas Neue".';
-      Object.assign(fontHint.style, { fontSize: '11px', color: 'var(--text-muted)' });
-      fontSection.appendChild(fontHint);
-
-      pluginGrid.appendChild(fontSection);
-
-      // --- Display Name Override ---
-      const nameSection = document.createElement('div');
-      stylePluginCard(nameSection);
-      Object.assign(nameSection.style, {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px'
-      });
-
-      const currentOverride = getDisplayNameOverride();
-      const nameLabel = document.createElement('div');
-      nameLabel.innerHTML = `<div style="font-weight:600;">Display Name (local only)</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Only changes what YOU see. Others still see your real name.</div>`;
-      nameSection.appendChild(nameLabel);
-
-      const nameRow = document.createElement('div');
-      Object.assign(nameRow.style, { display: 'flex', gap: '8px' });
-
-      const nameInput = document.createElement('input');
-      nameInput.type = 'text';
-      nameInput.placeholder = 'Your real username (as shown in chat)';
-      nameInput.value = getMyRealUsername() || '';
-      Object.assign(nameInput.style, {
-        flex: '1', minWidth: '0', padding: '8px', borderRadius: '6px',
-        border: '1px solid var(--borders-and-separators)',
-        background: 'var(--popups-and-modals)', color: 'var(--text-primary)'
-      });
-      nameRow.appendChild(nameInput);
-      nameSection.appendChild(nameRow);
-
-      const overrideRow = document.createElement('div');
-      Object.assign(overrideRow.style, { display: 'flex', gap: '8px' });
-
-      const overrideInput = document.createElement('input');
-      overrideInput.type = 'text';
-      overrideInput.placeholder = 'Show as…';
-      overrideInput.value = currentOverride;
-      Object.assign(overrideInput.style, {
-        flex: '1', minWidth: '0', padding: '8px', borderRadius: '6px',
-        border: '1px solid var(--borders-and-separators)',
-        background: 'var(--popups-and-modals)', color: 'var(--text-primary)'
-      });
-      overrideRow.appendChild(overrideInput);
-
-      const nameApplyBtn = document.createElement('div');
-      nameApplyBtn.textContent = 'Apply';
-      Object.assign(nameApplyBtn.style, {
-        padding: '8px 14px', borderRadius: '6px', cursor: 'pointer',
-        background: 'var(--primary-action)', color: 'var(--primary-foreground)',
-        fontWeight: 'bold', whiteSpace: 'nowrap'
-      });
-      nameApplyBtn.addEventListener('mouseenter', () => nameApplyBtn.style.background = 'var(--primary-hover)');
-      nameApplyBtn.addEventListener('mouseleave', () => nameApplyBtn.style.background = 'var(--primary-action)');
-      nameApplyBtn.addEventListener('click', () => {
-        const real = sanitizePlainLabel(nameInput.value, 32);
-        const override = sanitizePlainLabel(overrideInput.value, 32);
-        if (real) localStorage.setItem(ORIGINAL_NAME_KEY, real);
-        saveDisplayNameOverride(override);
-        setDisplayNameEnabled(!!override);
-        renderPanel();
-      });
-      overrideRow.appendChild(nameApplyBtn);
-      nameSection.appendChild(overrideRow);
-
-      if (currentOverride) {
-        const clearBtn = document.createElement('div');
-        clearBtn.textContent = '✕ Clear override';
-        Object.assign(clearBtn.style, { fontSize: '12px', color: 'var(--text-muted)', cursor: 'pointer' });
-        clearBtn.addEventListener('click', () => {
-          saveDisplayNameOverride('');
-          setDisplayNameEnabled(false);
-          renderPanel();
+        const head = document.createElement('div');
+        Object.assign(head.style, {
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: '12px'
         });
-        nameSection.appendChild(clearBtn);
+
+        const textWrap = document.createElement('div');
+        Object.assign(textWrap.style, { minWidth: '0', flex: '1' });
+
+        const titleEl = document.createElement('div');
+        Object.assign(titleEl.style, {
+          fontWeight: '650',
+          fontSize: '14px',
+          color: 'var(--text-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          flexWrap: 'wrap'
+        });
+        titleEl.appendChild(document.createTextNode(title));
+        if (badge) {
+          const badgeEl = document.createElement('span');
+          badgeEl.textContent = badge;
+          Object.assign(badgeEl.style, {
+            fontSize: '10px',
+            fontWeight: '700',
+            color: 'var(--warning-yellow)',
+            letterSpacing: '0.02em'
+          });
+          titleEl.appendChild(badgeEl);
+        }
+        textWrap.appendChild(titleEl);
+
+        if (desc) {
+          const descEl = document.createElement('div');
+          descEl.textContent = desc;
+          Object.assign(descEl.style, {
+            fontSize: '12px',
+            color: 'var(--text-muted)',
+            marginTop: '4px',
+            lineHeight: '1.35'
+          });
+          textWrap.appendChild(descEl);
+        }
+
+        head.appendChild(textWrap);
+        if (typeof enabled === 'boolean' && typeof onToggle === 'function') {
+          head.appendChild(makeToggle(enabled, onToggle, { dimmed }));
+        }
+        card.appendChild(head);
+
+        if (typeof build === 'function') {
+          const controls = document.createElement('div');
+          Object.assign(controls.style, {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            marginTop: '2px'
+          });
+          build(controls, styleField);
+          card.appendChild(controls);
+        }
+
+        pluginGrid.appendChild(card);
+        return card;
       }
 
-      pluginGrid.appendChild(nameSection);
-
-      // --- Timestamp Format ---
-      const tsSection = document.createElement('div');
-      stylePluginCard(tsSection);
-      Object.assign(tsSection.style, {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px'
+      // Toggles first — even 2×2 grid
+      makePluginCard({
+        title: 'RGB Usernames',
+        desc: 'Cycle chat usernames through rainbow colors',
+        enabled: isRgbEnabled(),
+        onToggle: () => {
+          const next = !isRgbEnabled();
+          setRgbEnabled(next);
+          return next;
+        }
       });
 
-      const tsLabel = document.createElement('div');
-      tsLabel.innerHTML = `<div style="font-weight:600;">Timestamp Format</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Change how message times are displayed</div>`;
-      tsSection.appendChild(tsLabel);
-
-      const tsSelect = document.createElement('select');
-      Object.assign(tsSelect.style, {
-        padding: '8px', borderRadius: '6px',
-        border: '1px solid var(--borders-and-separators)',
-        background: 'var(--popups-and-modals)', color: 'var(--text-primary)', cursor: 'pointer',
-        width: '100%', boxSizing: 'border-box'
-      });
-      [
-        { id: 'default', label: 'Default (app default)' },
-        { id: '12h', label: '12-hour (e.g. 3:45 PM)' },
-        { id: '24h', label: '24-hour (e.g. 15:45)' },
-        { id: 'relative', label: 'Relative (e.g. "5m ago")' }
-      ].forEach(o => {
-        const opt = document.createElement('option');
-        opt.value = o.id;
-        opt.textContent = o.label;
-        tsSelect.appendChild(opt);
-      });
-      tsSelect.value = getTimestampFormat();
-      tsSelect.addEventListener('change', () => {
-        setTimestampFormat(tsSelect.value);
-      });
-      tsSection.appendChild(tsSelect);
-      pluginGrid.appendChild(tsSection);
-
-      // --- Image Blur ---
-      const blurRow = document.createElement('div');
-      stylePluginCard(blurRow);
-      Object.assign(blurRow.style, {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px'
+      makePluginCard({
+        title: 'Soft Tap Sounds',
+        desc: 'Quiet taps when typing or clicking',
+        enabled: isSoftTapsEnabled(),
+        onToggle: () => {
+          const next = !isSoftTapsEnabled();
+          setSoftTapsEnabled(next);
+          return next;
+        }
       });
 
-      const blurLabel = document.createElement('div');
-      blurLabel.innerHTML = `<div style="font-weight:600;">Blur Images</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Hides images until clicked (spoiler-style)</div>`;
-      blurRow.appendChild(blurLabel);
-
-      const blurToggle = document.createElement('div');
-      const blurEnabled = isImageBlurEnabled();
-      Object.assign(blurToggle.style, {
-        width: '42px', height: '24px', borderRadius: '12px',
-        background: blurEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
-        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+      makePluginCard({
+        title: 'Blur Images',
+        desc: 'Hide images until clicked (spoiler-style)',
+        enabled: isImageBlurEnabled(),
+        onToggle: () => {
+          const next = !isImageBlurEnabled();
+          setImageBlurEnabled(next);
+          return next;
+        }
       });
 
-      const blurKnob = document.createElement('div');
-      Object.assign(blurKnob.style, {
-        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
-        position: 'absolute', top: '3px', left: blurEnabled ? '21px' : '3px', transition: 'left 0.15s'
-      });
-      blurToggle.appendChild(blurKnob);
-
-      blurToggle.addEventListener('click', () => {
-        const newState = !isImageBlurEnabled();
-        setImageBlurEnabled(newState);
-        blurToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
-        blurKnob.style.left = newState ? '21px' : '3px';
-      });
-
-      blurRow.appendChild(blurToggle);
-      pluginGrid.appendChild(blurRow);
-
-      // --- Soft Tap Sounds ---
-      const tapsRow = document.createElement('div');
-      stylePluginCard(tapsRow);
-      Object.assign(tapsRow.style, {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px'
+      makePluginCard({
+        title: 'Call Timer',
+        desc: 'Show how long you\'ve been in the current call',
+        badge: 'NOT WORKING',
+        enabled: isCallTimerEnabled(),
+        dimmed: true,
+        onToggle: () => {
+          const next = !isCallTimerEnabled();
+          setCallTimerEnabled(next);
+          return next;
+        }
       });
 
-      const tapsLabel = document.createElement('div');
-      tapsLabel.innerHTML = `<div style="font-weight:600;">Soft Tap Sounds</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Quiet taps when typing or clicking</div>`;
-      tapsRow.appendChild(tapsLabel);
+      // Settings cards
+      makePluginCard({
+        title: 'Font',
+        desc: getSavedFont()
+          ? `App-wide font — ${getSavedFont().label}`
+          : 'Change the app-wide font',
+        build: (controls, styleField) => {
+          const fontSelect = document.createElement('select');
+          styleField(fontSelect);
+          fontSelect.style.cursor = 'pointer';
+          getPresetFonts().forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.id;
+            opt.textContent = f.label;
+            fontSelect.appendChild(opt);
+          });
+          const savedFont = getSavedFont();
+          if (savedFont) {
+            const match = getPresetFonts().find(f => f.label === savedFont.label);
+            if (match) fontSelect.value = match.id;
+          } else {
+            fontSelect.value = 'default';
+          }
+          fontSelect.addEventListener('change', () => {
+            setPresetFont(fontSelect.value);
+            renderPanel();
+          });
+          controls.appendChild(fontSelect);
 
-      const tapsToggle = document.createElement('div');
-      const tapsEnabled = isSoftTapsEnabled();
-      Object.assign(tapsToggle.style, {
-        width: '42px', height: '24px', borderRadius: '12px',
-        background: tapsEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
-        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+          const customRow = document.createElement('div');
+          Object.assign(customRow.style, { display: 'flex', gap: '8px' });
+
+          const customInput = document.createElement('input');
+          customInput.type = 'text';
+          customInput.placeholder = 'Custom Google Font…';
+          styleField(customInput);
+          customInput.style.flex = '1';
+          customInput.style.width = 'auto';
+          customRow.appendChild(customInput);
+
+          const customBtn = document.createElement('div');
+          customBtn.textContent = 'Apply';
+          Object.assign(customBtn.style, {
+            padding: '8px 12px',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            background: 'var(--primary-action)',
+            color: 'var(--primary-foreground)',
+            fontWeight: '700',
+            fontSize: '12px',
+            whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'center'
+          });
+          customBtn.addEventListener('mouseenter', () => customBtn.style.background = 'var(--primary-hover)');
+          customBtn.addEventListener('mouseleave', () => customBtn.style.background = 'var(--primary-action)');
+          customBtn.addEventListener('click', () => {
+            if (!customInput.value.trim()) return;
+            setCustomFont(customInput.value);
+            if (getSavedFont()) renderPanel();
+          });
+          customRow.appendChild(customBtn);
+          controls.appendChild(customRow);
+        }
       });
 
-      const tapsKnob = document.createElement('div');
-      Object.assign(tapsKnob.style, {
-        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
-        position: 'absolute', top: '3px', left: tapsEnabled ? '21px' : '3px', transition: 'left 0.15s'
-      });
-      tapsToggle.appendChild(tapsKnob);
-
-      tapsToggle.addEventListener('click', () => {
-        const newState = !isSoftTapsEnabled();
-        setSoftTapsEnabled(newState);
-        tapsToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
-        tapsKnob.style.left = newState ? '21px' : '3px';
-      });
-
-      tapsRow.appendChild(tapsToggle);
-      pluginGrid.appendChild(tapsRow);
-
-      // --- Call Timer ---
-      const callRow = document.createElement('div');
-      stylePluginCard(callRow);
-      Object.assign(callRow.style, {
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px'
-      });
-
-      const callLabel = document.createElement('div');
-      callLabel.innerHTML = `<div style="font-weight:600;">Call Timer <span style="color:var(--warning-yellow);font-size:11px;font-weight:700;">⚠ not working — fix later</span></div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Shows how long you've been in the current call</div>`;
-      callRow.appendChild(callLabel);
-
-      const callToggle = document.createElement('div');
-      const callEnabled = isCallTimerEnabled();
-      Object.assign(callToggle.style, {
-        width: '42px', height: '24px', borderRadius: '12px',
-        background: callEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
-        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s',
-        opacity: '0.45'
+      makePluginCard({
+        title: 'Timestamp Format',
+        desc: 'How message times are shown',
+        build: (controls, styleField) => {
+          const tsSelect = document.createElement('select');
+          styleField(tsSelect);
+          tsSelect.style.cursor = 'pointer';
+          [
+            { id: 'default', label: 'Default' },
+            { id: '12h', label: '12-hour' },
+            { id: '24h', label: '24-hour' },
+            { id: 'relative', label: 'Relative' }
+          ].forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.id;
+            opt.textContent = o.label;
+            tsSelect.appendChild(opt);
+          });
+          tsSelect.value = getTimestampFormat();
+          tsSelect.addEventListener('change', () => setTimestampFormat(tsSelect.value));
+          controls.appendChild(tsSelect);
+        }
       });
 
-      const callKnob = document.createElement('div');
-      Object.assign(callKnob.style, {
-        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
-        position: 'absolute', top: '3px', left: callEnabled ? '21px' : '3px', transition: 'left 0.15s'
-      });
-      callToggle.appendChild(callKnob);
+      makePluginCard({
+        title: 'Display Name',
+        desc: 'Local only — others still see your real name',
+        wide: true,
+        build: (controls, styleField) => {
+          const currentOverride = getDisplayNameOverride();
 
-      callToggle.title = 'Not working — fix later';
-      callToggle.addEventListener('click', () => {
-        const newState = !isCallTimerEnabled();
-        setCallTimerEnabled(newState);
-        callToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
-        callKnob.style.left = newState ? '21px' : '3px';
-      });
+          const nameInput = document.createElement('input');
+          nameInput.type = 'text';
+          nameInput.placeholder = 'Real username (as in chat)';
+          nameInput.value = getMyRealUsername() || '';
+          styleField(nameInput);
+          controls.appendChild(nameInput);
 
-      callRow.appendChild(callToggle);
-      pluginGrid.appendChild(callRow);
+          const overrideRow = document.createElement('div');
+          Object.assign(overrideRow.style, { display: 'flex', gap: '8px' });
+
+          const overrideInput = document.createElement('input');
+          overrideInput.type = 'text';
+          overrideInput.placeholder = 'Show as…';
+          overrideInput.value = currentOverride;
+          styleField(overrideInput);
+          overrideInput.style.flex = '1';
+          overrideInput.style.width = 'auto';
+          overrideRow.appendChild(overrideInput);
+
+          const nameApplyBtn = document.createElement('div');
+          nameApplyBtn.textContent = 'Apply';
+          Object.assign(nameApplyBtn.style, {
+            padding: '8px 14px',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            background: 'var(--primary-action)',
+            color: 'var(--primary-foreground)',
+            fontWeight: '700',
+            fontSize: '12px',
+            whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'center'
+          });
+          nameApplyBtn.addEventListener('mouseenter', () => nameApplyBtn.style.background = 'var(--primary-hover)');
+          nameApplyBtn.addEventListener('mouseleave', () => nameApplyBtn.style.background = 'var(--primary-action)');
+          nameApplyBtn.addEventListener('click', () => {
+            const real = sanitizePlainLabel(nameInput.value, 32);
+            const override = sanitizePlainLabel(overrideInput.value, 32);
+            if (real) localStorage.setItem(ORIGINAL_NAME_KEY, real);
+            saveDisplayNameOverride(override);
+            setDisplayNameEnabled(!!override);
+            renderPanel();
+          });
+          overrideRow.appendChild(nameApplyBtn);
+          controls.appendChild(overrideRow);
+
+          if (currentOverride) {
+            const clearBtn = document.createElement('div');
+            clearBtn.textContent = 'Clear override';
+            Object.assign(clearBtn.style, {
+              fontSize: '12px',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              width: 'fit-content'
+            });
+            clearBtn.addEventListener('click', () => {
+              saveDisplayNameOverride('');
+              setDisplayNameEnabled(false);
+              renderPanel();
+            });
+            controls.appendChild(clearBtn);
+          }
+        }
+      });
 
       body.appendChild(pluginGrid);
       body.appendChild(makeCreditNote({ maxWidth: '100%' }));
@@ -2469,7 +2423,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.31';
+  const CURRENT_VERSION = '1.32';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
