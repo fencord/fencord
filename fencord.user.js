@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.20
+// @version      1.21
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -22,16 +22,14 @@
     note.className = 'fencord-credits';
     note.textContent = CREDITS_TEXT;
     Object.assign(note.style, {
-      fontSize: compact ? '13px' : '15px',
-      color: 'var(--primary-action)',
-      opacity: '1',
-      marginTop: compact ? '10px' : '14px',
-      marginBottom: compact ? '6px' : '10px',
+      fontSize: compact ? '12px' : '13px',
+      color: 'var(--text-muted)',
+      opacity: '0.9',
+      marginTop: compact ? '10px' : '16px',
       maxWidth,
-      lineHeight: '1.4',
+      lineHeight: '1.35',
       userSelect: 'none',
-      fontWeight: '700',
-      letterSpacing: '0.2px'
+      fontWeight: '600'
     });
     return note;
   }
@@ -244,14 +242,14 @@
     custom[key] = { name: parsed.name, vars: parsed.vars };
     saveCustomThemes(custom);
 
-    alert(`Imported "${parsed.name}"! Select it from the theme list.\n\n${CREDITS_TEXT}`);
+    alert(`Imported "${parsed.name}"! Select it from the theme list.`);
     rerenderPanel();
   }
 
   function copyTemplate() {
     const text = JSON.stringify(TEMPLATE_THEME, null, 2);
     navigator.clipboard.writeText(text).then(() => {
-      alert(`Template copied to clipboard! Edit the hex values, then use Import.\n\n${CREDITS_TEXT}`);
+      alert(`Template copied to clipboard! Edit the hex values, then use Import.`);
     }).catch(() => {
       prompt('Copy this template manually:', text);
     });
@@ -341,7 +339,7 @@
         <button id="fencord-quick-save" style="flex:1;padding:10px;border-radius:6px;border:none;background:var(--primary-action);color:var(--primary-foreground);cursor:pointer;font-weight:bold;">Save</button>
         <button id="fencord-quick-cancel" style="flex:1;padding:10px;border-radius:6px;border:none;background:var(--secondary-button);color:var(--text-primary);cursor:pointer;">Cancel</button>
       </div>
-      <div style="font-size:14px;color:var(--primary-action);user-select:none;font-weight:700;">made by @123 and @702 on fenrid</div>
+      <div style="font-size:11px;color:var(--text-muted);user-select:none;">made by @123 and @702 on fenrid</div>
     `;
 
     modalOverlay.appendChild(box);
@@ -627,8 +625,6 @@
         return themeA.name.localeCompare(themeB.name);
       });
 
-      body.appendChild(makeCreditNote());
-
       for (const [key, theme] of entries) {
         const selected = getSavedTheme() === key;
         const row = document.createElement('div');
@@ -774,7 +770,6 @@
         maxWidth: '420px'
       });
       body.appendChild(notice);
-      body.appendChild(makeCreditNote({ compact: true }));
 
       const row = document.createElement('div');
       Object.assign(row.style, {
@@ -826,7 +821,6 @@
 
       row.appendChild(toggle);
       body.appendChild(row);
-      body.appendChild(makeCreditNote({ compact: true }));
 
       // --- Font plugin section ---
       const fontDivider = document.createElement('div');
@@ -921,7 +915,6 @@
       fontSection.appendChild(fontHint);
 
       body.appendChild(fontSection);
-      body.appendChild(makeCreditNote({ compact: true }));
 
       // --- Display Name Override section ---
       const nameDivider = document.createElement('div');
@@ -1001,7 +994,6 @@
       }
 
       body.appendChild(nameSection);
-      body.appendChild(makeCreditNote({ compact: true }));
 
       // --- Timestamp Format section ---
       const tsDivider = document.createElement('div');
@@ -1041,7 +1033,6 @@
       });
       tsSection.appendChild(tsSelect);
       body.appendChild(tsSection);
-      body.appendChild(makeCreditNote({ compact: true }));
 
       // --- Image Blur / Spoiler section ---
       const blurDivider = document.createElement('div');
@@ -1082,7 +1073,6 @@
 
       blurRow.appendChild(blurToggle);
       body.appendChild(blurRow);
-      body.appendChild(makeCreditNote({ compact: true }));
 
       // --- Matrix Background section ---
       const matrixDivider = document.createElement('div');
@@ -1123,7 +1113,6 @@
 
       matrixRow.appendChild(matrixToggle);
       body.appendChild(matrixRow);
-      body.appendChild(makeCreditNote({ compact: true }));
 
       // --- Call Timer section ---
       const callDivider = document.createElement('div');
@@ -1189,10 +1178,8 @@
       Object.assign(sidebarCredits.style, {
         padding: '0 14px 20px 14px',
         marginTop: '0',
-        fontSize: '13px',
-        lineHeight: '1.35',
-        color: 'var(--primary-action)',
-        fontWeight: '700'
+        fontSize: '11px',
+        lineHeight: '1.3'
       });
       sidebar.appendChild(sidebarCredits);
 
@@ -1231,13 +1218,11 @@
       Object.assign(heading.style, {
         fontSize: '26px',
         fontWeight: 'bold',
-        marginBottom: '8px'
+        marginBottom: '28px'
       });
       content.appendChild(heading);
-      content.appendChild(makeCreditNote({ compact: true }));
 
       const body = document.createElement('div');
-      Object.assign(body.style, { marginTop: '16px' });
       content.appendChild(body);
 
       if (activeTab === 'themes') {
@@ -1848,7 +1833,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.20';
+  const CURRENT_VERSION = '1.21';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2073,7 +2058,6 @@
     btnRow.appendChild(noBtn);
 
     banner.appendChild(btnRow);
-    banner.appendChild(makeCreditNote({ compact: true, maxWidth: '100%' }));
 
     return banner;
   }
@@ -2144,41 +2128,18 @@
         position: 'fixed',
         bottom: '28px',
         left: '12px',
-        fontSize: '14px',
-        color: 'var(--primary-action)',
-        opacity: '0.95',
+        fontSize: '12px',
+        color: 'var(--text-muted)',
+        opacity: '0.7',
         zIndex: '1000000',
         userSelect: 'none',
         fontFamily: 'inherit',
         pointerEvents: 'none',
-        fontWeight: '700',
-        textShadow: '0 1px 3px rgba(0,0,0,0.55)'
+        fontWeight: '600'
       });
       document.body.appendChild(corner);
     }
 
-    if (!document.getElementById('fencord-credits-top')) {
-      const top = document.createElement('div');
-      top.id = 'fencord-credits-top';
-      top.textContent = CREDITS_TEXT;
-      Object.assign(top.style, {
-        position: 'fixed',
-        top: '12px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        fontSize: '13px',
-        color: 'var(--primary-action)',
-        opacity: '0.9',
-        zIndex: '1000000',
-        userSelect: 'none',
-        fontFamily: 'inherit',
-        pointerEvents: 'none',
-        fontWeight: '700',
-        textShadow: '0 1px 3px rgba(0,0,0,0.55)',
-        whiteSpace: 'nowrap'
-      });
-      document.body.appendChild(top);
-    }
   }
 
   function init() {
