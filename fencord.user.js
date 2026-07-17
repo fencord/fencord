@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.9
+// @version      1.10
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1203,7 +1203,7 @@
       });
 
       const callLabel = document.createElement('div');
-      callLabel.innerHTML = `<div style="font-weight:600;">Call Timer</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Shows how long you've been in the current call</div>`;
+      callLabel.innerHTML = `<div style="font-weight:600;">Call Timer <span style="color:var(--warning-yellow);font-size:11px;font-weight:700;">⚠ not working — fix later</span></div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Shows how long you've been in the current call</div>`;
       callRow.appendChild(callLabel);
 
       const callToggle = document.createElement('div');
@@ -1211,7 +1211,8 @@
       Object.assign(callToggle.style, {
         width: '42px', height: '24px', borderRadius: '12px',
         background: callEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
-        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s',
+        opacity: '0.45'
       });
 
       const callKnob = document.createElement('div');
@@ -1221,6 +1222,7 @@
       });
       callToggle.appendChild(callKnob);
 
+      callToggle.title = 'Not working — fix later';
       callToggle.addEventListener('click', () => {
         const newState = !isCallTimerEnabled();
         setCallTimerEnabled(newState);
@@ -1796,7 +1798,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.9';
+  const CURRENT_VERSION = '1.10';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2018,7 +2020,8 @@
     if (getDisplayNameOverride()) setDisplayNameEnabled(true);
     initTimestampFormat();
     if (isImageBlurEnabled()) setImageBlurEnabled(true);
-    if (isCallTimerEnabled()) setCallTimerEnabled(true);
+    // Call Timer is marked non-working; do not auto-start even if previously enabled.
+    // if (isCallTimerEnabled()) setCallTimerEnabled(true);
     createFencordWatermark();
     startUpdateChecker();
   }
