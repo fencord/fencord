@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.30
+// @version      1.31
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -534,10 +534,68 @@
     { id: 'couriernew', label: 'Courier New', family: "'Courier New', Courier, monospace", googleName: null }
   ];
 
+  // Plugin string safety: fonts/names are injected into CSS or URLs.
+  function isSafeFontFamily(family) {
+    if (family == null) return true;
+    if (typeof family !== 'string') return false;
+    const v = family.trim();
+    if (!v || v.length > 120) return false;
+    if (/url\s*\(|@import|expression\s*\(|javascript:|data:|<|>|[{};\\]|\/\*|\*\//i.test(v)) return false;
+    return /^[a-zA-Z0-9\s,'"_-]+$/.test(v);
+  }
+
+  function isSafeGoogleFontName(name) {
+    if (name == null) return true;
+    if (typeof name !== 'string') return false;
+    const v = name.trim();
+    if (!v || v.length > 80) return false;
+    if (/url\s*\(|https?:|\/\/|<|>|[{}\\'"]/i.test(v)) return false;
+    // e.g. Inter:wght@400;600;700 or Press+Start+2P
+    return /^[A-Za-z0-9]+(?:[+ ][A-Za-z0-9]+)*(?::wght@[0-9;]+)?$/.test(v);
+  }
+
+  function sanitizePlainLabel(text, maxLen = 32) {
+    if (typeof text !== 'string') return '';
+    let t = text.replace(/[\u0000-\u001F\u007F<>&`"\\]/g, '').trim();
+    if (t.length > maxLen) t = t.slice(0, maxLen);
+    return t;
+  }
+
+  function sanitizeFontPreset(f) {
+    if (!f || typeof f !== 'object') return null;
+    if (typeof f.id !== 'string' || !/^[a-z0-9_-]+$/i.test(f.id) || f.id.length > 40) return null;
+    if (typeof f.label !== 'string' || !f.label.trim() || f.label.length > 60 || /[<>]/.test(f.label)) return null;
+    if (!('family' in f) || !('googleName' in f)) return null;
+    if (f.family != null && !isSafeFontFamily(f.family)) return null;
+    if (f.googleName != null && !isSafeGoogleFontName(f.googleName)) return null;
+    return {
+      id: f.id,
+      label: f.label.trim(),
+      family: f.family == null ? null : String(f.family).trim(),
+      googleName: f.googleName == null ? null : String(f.googleName).trim()
+    };
+  }
+
+  function sanitizeSavedFontData(fontData) {
+    if (!fontData || typeof fontData !== 'object') return null;
+    if (!fontData.family) return null;
+    if (!isSafeFontFamily(fontData.family)) return null;
+    if (fontData.googleName != null && !isSafeGoogleFontName(fontData.googleName)) return null;
+    const label = sanitizePlainLabel(typeof fontData.label === 'string' ? fontData.label : 'Custom', 60);
+    return {
+      family: fontData.family.trim(),
+      googleName: fontData.googleName == null ? null : String(fontData.googleName).trim(),
+      label: label || 'Custom'
+    };
+  }
+
   function getCachedFonts() {
     try {
       const parsed = JSON.parse(localStorage.getItem(FONTS_CACHE_KEY) || 'null');
-      if (Array.isArray(parsed) && parsed.length && parsed[0].id === 'default') return parsed;
+      if (!Array.isArray(parsed) || !parsed.length) return null;
+      const cleaned = parsed.map(sanitizeFontPreset).filter(Boolean);
+      if (!cleaned.length || cleaned[0].id !== 'default') return null;
+      return cleaned;
     } catch (e) {}
     return null;
   }
@@ -552,17 +610,27 @@
 
   function getSavedFont() {
     try {
-      return JSON.parse(localStorage.getItem(FONT_KEY) || 'null');
+      return sanitizeSavedFontData(JSON.parse(localStorage.getItem(FONT_KEY) || 'null'));
     } catch (e) {
       return null;
     }
   }
 
   function saveFont(fontData) {
-    localStorage.setItem(FONT_KEY, JSON.stringify(fontData));
+    if (!fontData) {
+      localStorage.removeItem(FONT_KEY);
+      return;
+    }
+    const clean = sanitizeSavedFontData(fontData);
+    if (!clean) {
+      localStorage.removeItem(FONT_KEY);
+      return;
+    }
+    localStorage.setItem(FONT_KEY, JSON.stringify(clean));
   }
 
   function loadGoogleFont(googleName) {
+    if (!isSafeGoogleFontName(googleName)) return;
     let link = document.getElementById(FONT_LINK_ID);
     if (!link) {
       link = document.createElement('link');
@@ -570,6 +638,7 @@
       link.rel = 'stylesheet';
       document.head.appendChild(link);
     }
+    // Keep Google's expected family=Name:wght@... shape; value is allowlisted above.
     link.href = `https://fonts.googleapis.com/css2?family=${googleName}&display=swap`;
   }
 
@@ -581,34 +650,52 @@
       document.head.appendChild(styleEl);
     }
 
-    if (!fontData || !fontData.family) {
+    const clean = sanitizeSavedFontData(fontData);
+    if (!clean || !clean.family) {
       styleEl.textContent = '';
       const link = document.getElementById(FONT_LINK_ID);
       if (link) link.remove();
       return;
     }
 
-    if (fontData.googleName) {
-      loadGoogleFont(fontData.googleName);
+    if (clean.googleName) {
+      loadGoogleFont(clean.googleName);
+    } else {
+      const link = document.getElementById(FONT_LINK_ID);
+      if (link) link.remove();
     }
 
-    styleEl.textContent = `* { font-family: ${fontData.family} !important; }`;
+    styleEl.textContent = `* { font-family: ${clean.family} !important; }`;
   }
 
   function setPresetFont(presetId) {
+    if (typeof presetId !== 'string' || !/^[a-z0-9_-]+$/i.test(presetId)) return;
     const preset = getPresetFonts().find(f => f.id === presetId);
     if (!preset) return;
-    const fontData = preset.family ? { family: preset.family, googleName: preset.googleName, label: preset.label } : null;
+    const fontData = preset.family
+      ? sanitizeSavedFontData({ family: preset.family, googleName: preset.googleName, label: preset.label })
+      : null;
     saveFont(fontData);
     applyFont(fontData);
   }
 
   function setCustomFont(name) {
-    const trimmed = name.trim();
+    const trimmed = sanitizePlainLabel(typeof name === 'string' ? name.trim() : '', 60);
     if (!trimmed) return;
-    // Google Fonts URLs want spaces as +
     const googleName = trimmed.replace(/\s+/g, '+');
-    const fontData = { family: `'${trimmed}', sans-serif`, googleName, label: trimmed };
+    if (!isSafeGoogleFontName(googleName)) {
+      alert('Font blocked — use a plain Google Fonts name (letters/numbers/spaces only).');
+      return;
+    }
+    const fontData = sanitizeSavedFontData({
+      family: `'${trimmed}', sans-serif`,
+      googleName,
+      label: trimmed
+    });
+    if (!fontData) {
+      alert('Font blocked — unsafe font-family value.');
+      return;
+    }
     saveFont(fontData);
     applyFont(fontData);
   }
@@ -983,7 +1070,16 @@
 
       const fontLabel = document.createElement('div');
       const savedFont = getSavedFont();
-      fontLabel.innerHTML = `<div style="font-weight:600;">Font</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Change the app-wide font${savedFont ? ' — currently: ' + savedFont.label : ''}</div>`;
+      const fontTitle = document.createElement('div');
+      fontTitle.style.fontWeight = '600';
+      fontTitle.textContent = 'Font';
+      const fontSub = document.createElement('div');
+      Object.assign(fontSub.style, { fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' });
+      fontSub.textContent = savedFont
+        ? `Change the app-wide font — currently: ${savedFont.label}`
+        : 'Change the app-wide font';
+      fontLabel.appendChild(fontTitle);
+      fontLabel.appendChild(fontSub);
       fontSection.appendChild(fontLabel);
 
       const fontSelect = document.createElement('select');
@@ -1048,7 +1144,7 @@
       customBtn.addEventListener('click', () => {
         if (!customInput.value.trim()) return;
         setCustomFont(customInput.value);
-        renderPanel();
+        if (getSavedFont()) renderPanel();
       });
       customRow.appendChild(customBtn);
 
@@ -1114,8 +1210,8 @@
       nameApplyBtn.addEventListener('mouseenter', () => nameApplyBtn.style.background = 'var(--primary-hover)');
       nameApplyBtn.addEventListener('mouseleave', () => nameApplyBtn.style.background = 'var(--primary-action)');
       nameApplyBtn.addEventListener('click', () => {
-        const real = nameInput.value.trim();
-        const override = overrideInput.value.trim();
+        const real = sanitizePlainLabel(nameInput.value, 32);
+        const override = sanitizePlainLabel(overrideInput.value, 32);
         if (real) localStorage.setItem(ORIGINAL_NAME_KEY, real);
         saveDisplayNameOverride(override);
         setDisplayNameEnabled(!!override);
@@ -1387,20 +1483,21 @@
   let displayNameObserver = null;
 
   function getDisplayNameOverride() {
-    return localStorage.getItem(DISPLAY_NAME_KEY) || '';
+    return sanitizePlainLabel(localStorage.getItem(DISPLAY_NAME_KEY) || '', 32);
   }
 
   function saveDisplayNameOverride(name) {
-    if (name) {
-      localStorage.setItem(DISPLAY_NAME_KEY, name);
+    const clean = sanitizePlainLabel(name, 32);
+    if (clean) {
+      localStorage.setItem(DISPLAY_NAME_KEY, clean);
     } else {
       localStorage.removeItem(DISPLAY_NAME_KEY);
     }
   }
 
   function getMyRealUsername() {
-    // Best-effort: look at any cached original name, else null (unknown yet).
-    return localStorage.getItem(ORIGINAL_NAME_KEY) || null;
+    const raw = localStorage.getItem(ORIGINAL_NAME_KEY);
+    return raw ? sanitizePlainLabel(raw, 32) || null : null;
   }
 
   function tickDisplayNameOverride() {
@@ -1463,7 +1560,8 @@
     for (let i = 0; i < 4 && panel; i++) {
       const nameSpan = panel.querySelector('span.font-semibold');
       if (nameSpan && nameSpan.textContent.trim()) {
-        localStorage.setItem(ORIGINAL_NAME_KEY, nameSpan.textContent.trim());
+        const detected = sanitizePlainLabel(nameSpan.textContent, 32);
+        if (detected) localStorage.setItem(ORIGINAL_NAME_KEY, detected);
         if (getDisplayNameOverride()) tickDisplayNameOverride();
         return;
       }
@@ -1481,15 +1579,20 @@
   // ---------------------------------------------------------------
 
   const TIMESTAMP_FORMAT_KEY = 'fencord-timestamp-format';
+  const ALLOWED_TIMESTAMP_FORMATS = new Set(['default', '12h', '24h', 'relative']);
   let timestampInterval = null;
   let timestampObserver = null;
 
   function getTimestampFormat() {
-    return localStorage.getItem(TIMESTAMP_FORMAT_KEY) || 'default';
+    const fmt = localStorage.getItem(TIMESTAMP_FORMAT_KEY) || 'default';
+    return ALLOWED_TIMESTAMP_FORMATS.has(fmt) ? fmt : 'default';
   }
 
   function saveTimestampFormat(fmt) {
-    localStorage.setItem(TIMESTAMP_FORMAT_KEY, fmt);
+    localStorage.setItem(
+      TIMESTAMP_FORMAT_KEY,
+      ALLOWED_TIMESTAMP_FORMATS.has(fmt) ? fmt : 'default'
+    );
   }
 
   function formatRelative(date) {
@@ -1543,10 +1646,11 @@
   }
 
   function setTimestampFormat(fmt) {
-    saveTimestampFormat(fmt);
+    const next = ALLOWED_TIMESTAMP_FORMATS.has(fmt) ? fmt : 'default';
+    saveTimestampFormat(next);
     revertTimestamps();
 
-    if (fmt === 'default') {
+    if (next === 'default') {
       if (timestampInterval) { clearInterval(timestampInterval); timestampInterval = null; }
       if (timestampObserver) { timestampObserver.disconnect(); timestampObserver = null; }
       return;
@@ -2365,7 +2469,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.30';
+  const CURRENT_VERSION = '1.31';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2400,13 +2504,8 @@
 
   function isValidFontsCatalog(data) {
     if (!Array.isArray(data) || !data.length) return false;
-    return data.every((f) =>
-      f && typeof f === 'object' &&
-      typeof f.id === 'string' &&
-      typeof f.label === 'string' &&
-      ('family' in f) &&
-      ('googleName' in f)
-    );
+    const cleaned = data.map(sanitizeFontPreset).filter(Boolean);
+    return cleaned.length === data.length && cleaned[0].id === 'default';
   }
 
   async function loadThemes() {
@@ -2444,10 +2543,11 @@
         if (!res.ok) throw new Error('bad response');
         const data = await res.json();
         if (!isValidFontsCatalog(data)) throw new Error('invalid fonts catalog');
-        remoteFonts = data;
-        saveCachedFonts(data);
+        const cleaned = data.map(sanitizeFontPreset).filter(Boolean);
+        remoteFonts = cleaned;
+        saveCachedFonts(cleaned);
         if (typeof refreshSettingsPanel === 'function') refreshSettingsPanel();
-        return data;
+        return cleaned;
       } catch (e) {
         return getPresetFonts();
       } finally {
