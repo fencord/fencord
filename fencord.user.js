@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.5
+// @version      1.6
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1612,19 +1612,13 @@
 
   // ---------------------------------------------------------------
   // CALL TIMER PLUGIN
-  // Detects Fenrid voice-call disconnect chrome and shows a live
-  // elapsed-time overlay while you are in a call.
-  // Poll-only (no MutationObserver) — mounting/removing the overlay
-  // under a subtree observer caused join/leave thrash freezes.
+  // Fenrid shows a "Voice Connected" footer (with a Disconnect button)
+  // while in a voice channel. We poll for that chrome and inject a
+  // live elapsed timer next to the label — no MutationObserver.
   // ---------------------------------------------------------------
 
   const CALL_TIMER_KEY = 'fencord-call-timer';
-  const CALL_TIMER_OVERLAY_ID = 'fencord-call-timer';
-  // Mute/Deafen/Leave are too broad (user bar / server leave). Only
-  // match disconnect-from-call style controls.
-  const CALL_BUTTON_TITLES = [
-    'Disconnect', 'Leave Call', 'Disconnect Call', 'Hang Up', 'End Call'
-  ];
+  const CALL_TIMER_EL_ID = 'fencord-call-timer';
   // Require a few consecutive misses before treating as left, so brief
   // React re-renders don't restart the clock.
   const CALL_LEAVE_CONFIRM_POLLS = 3;
@@ -1637,10 +1631,17 @@
     return localStorage.getItem(CALL_TIMER_KEY) === 'true';
   }
 
+  function findVoiceConnectedLabel() {
+    // Exact Fenrid class set from their VoiceConnectedFooter.
+    for (const el of document.querySelectorAll('span.text-xs.font-semibold.text-blue-500')) {
+      if (el.textContent.trim() === 'Voice Connected') return el;
+    }
+    return null;
+  }
+
   function isInCall() {
-    return CALL_BUTTON_TITLES.some(title =>
-      document.querySelector(`button[title="${title}"]`)
-    );
+    if (findVoiceConnectedLabel()) return true;
+    return !!document.querySelector('button[title="Disconnect"]');
   }
 
   function formatCallElapsed(ms) {
@@ -1654,56 +1655,89 @@
     return `${minutes}:${ss}`;
   }
 
-  function ensureCallTimerOverlay() {
-    let el = document.getElementById(CALL_TIMER_OVERLAY_ID);
-    if (el) return el;
+  function ensureCallTimerEl() {
+    let el = document.getElementById(CALL_TIMER_EL_ID);
+    const label = findVoiceConnectedLabel();
 
-    el = document.createElement('div');
-    el.id = CALL_TIMER_OVERLAY_ID;
-    Object.assign(el.style, {
-      position: 'fixed',
-      bottom: '56px',
-      left: '16px',
-      zIndex: '999997',
-      padding: '8px 14px',
-      borderRadius: '8px',
-      background: 'var(--popups-and-modals)',
-      color: 'var(--text-primary)',
-      border: '1px solid var(--primary-action)',
-      fontSize: '13px',
-      fontWeight: '600',
-      fontFamily: 'inherit',
-      letterSpacing: '0.3px',
-      boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-      pointerEvents: 'none',
-      userSelect: 'none'
-    });
-    document.body.appendChild(el);
+    if (label && label.parentElement) {
+      // Prefer sitting inline next to "Voice Connected".
+      if (el && el.parentElement !== label.parentElement) {
+        el.remove();
+        el = null;
+      }
+      if (!el) {
+        el = document.createElement('span');
+        el.id = CALL_TIMER_EL_ID;
+        Object.assign(el.style, {
+          fontSize: '12px',
+          fontWeight: '600',
+          color: 'var(--text-muted)',
+          fontVariantNumeric: 'tabular-nums',
+          letterSpacing: '0.2px',
+          userSelect: 'none'
+        });
+        label.parentElement.insertBefore(el, label.nextSibling);
+      }
+      return el;
+    }
+
+    // Fallback floating pill if the label isn't found but Disconnect is.
+    if (el && el.tagName === 'SPAN' && el.parentElement !== document.body) {
+      el.remove();
+      el = null;
+    }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = CALL_TIMER_EL_ID;
+      Object.assign(el.style, {
+        position: 'fixed',
+        bottom: '72px',
+        left: '88px',
+        zIndex: '999997',
+        padding: '6px 12px',
+        borderRadius: '8px',
+        background: 'var(--popups-and-modals)',
+        color: 'var(--text-primary)',
+        border: '1px solid var(--primary-action)',
+        fontSize: '13px',
+        fontWeight: '600',
+        fontFamily: 'inherit',
+        fontVariantNumeric: 'tabular-nums',
+        letterSpacing: '0.3px',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+        pointerEvents: 'none',
+        userSelect: 'none'
+      });
+      document.body.appendChild(el);
+    }
     return el;
   }
 
-  function removeCallTimerOverlay() {
-    const el = document.getElementById(CALL_TIMER_OVERLAY_ID);
+  function removeCallTimerEl() {
+    const el = document.getElementById(CALL_TIMER_EL_ID);
     if (el) el.remove();
   }
 
-  function updateCallTimerOverlay() {
+  function updateCallTimerDisplay() {
     if (callJoinedAt == null) return;
-    const el = ensureCallTimerOverlay();
-    el.textContent = `Call · ${formatCallElapsed(Date.now() - callJoinedAt)}`;
+    const el = ensureCallTimerEl();
+    if (!el) return;
+    const time = formatCallElapsed(Date.now() - callJoinedAt);
+    // Inline next to the label is just the time; floating gets a prefix.
+    el.textContent = el.tagName === 'SPAN' ? time : `Call · ${time}`;
   }
 
   function startCallClock() {
     if (callJoinedAt != null) return;
     callJoinedAt = Date.now();
     callMissCount = 0;
-    updateCallTimerOverlay();
+    updateCallTimerDisplay();
   }
 
   function stopCallClock() {
     callJoinedAt = null;
     callMissCount = 0;
-    removeCallTimerOverlay();
+    removeCallTimerEl();
   }
 
   function tickCallTimer() {
@@ -1712,7 +1746,7 @@
     if (isInCall()) {
       callMissCount = 0;
       if (callJoinedAt == null) startCallClock();
-      else updateCallTimerOverlay();
+      else updateCallTimerDisplay();
       return;
     }
 
@@ -1722,8 +1756,7 @@
     if (callMissCount >= CALL_LEAVE_CONFIRM_POLLS) {
       stopCallClock();
     } else {
-      // Keep showing the last elapsed time while we wait to confirm leave.
-      updateCallTimerOverlay();
+      updateCallTimerDisplay();
     }
   }
 
@@ -1762,7 +1795,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.5';
+  const CURRENT_VERSION = '1.6';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
