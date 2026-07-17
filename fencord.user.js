@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.33
+// @version      1.34
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -942,7 +942,14 @@
       });
 
       const fxLabel = document.createElement('div');
-      fxLabel.innerHTML = `<div style="font-weight:600;">Background Effect</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Animated backdrop behind the app (one at a time)</div>`;
+      const fxTitle = document.createElement('div');
+      fxTitle.style.fontWeight = '600';
+      fxTitle.textContent = 'Background Effect';
+      const fxSub = document.createElement('div');
+      Object.assign(fxSub.style, { fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' });
+      fxSub.textContent = 'Animated backdrop behind the app (one at a time)';
+      fxLabel.appendChild(fxTitle);
+      fxLabel.appendChild(fxSub);
       fxSection.appendChild(fxLabel);
 
       const fxSelect = document.createElement('select');
@@ -954,7 +961,9 @@
       getBackgroundEffects().forEach(o => {
         const opt = document.createElement('option');
         opt.value = o.id;
-        opt.textContent = o.label;
+        opt.textContent = o.id === 'none'
+          ? o.label
+          : `${o.label} — needs a theme or it may not be visible`;
         fxSelect.appendChild(opt);
       });
       fxSelect.value = getBackgroundEffect();
@@ -962,6 +971,15 @@
         setBackgroundEffect(fxSelect.value);
       });
       fxSection.appendChild(fxSelect);
+
+      const fxHint = document.createElement('div');
+      fxHint.textContent = 'Turn on a theme first — without one, effects may not be visible.';
+      Object.assign(fxHint.style, {
+        fontSize: '11px',
+        color: 'var(--text-muted)',
+        lineHeight: '1.35'
+      });
+      fxSection.appendChild(fxHint);
       body.appendChild(fxSection);
 
       body.appendChild(makeCreditNote());
@@ -2484,7 +2502,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.33';
+  const CURRENT_VERSION = '1.34';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
