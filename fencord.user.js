@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.3
+// @version      1.4
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1190,6 +1190,46 @@
 
       blurRow.appendChild(blurToggle);
       body.appendChild(blurRow);
+
+      // --- Call Timer section ---
+      const callDivider = document.createElement('div');
+      Object.assign(callDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
+      body.appendChild(callDivider);
+
+      const callRow = document.createElement('div');
+      Object.assign(callRow.style, {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
+      });
+
+      const callLabel = document.createElement('div');
+      callLabel.innerHTML = `<div style="font-weight:600;">Call Timer</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Shows how long you've been in the current call</div>`;
+      callRow.appendChild(callLabel);
+
+      const callToggle = document.createElement('div');
+      const callEnabled = isCallTimerEnabled();
+      Object.assign(callToggle.style, {
+        width: '42px', height: '24px', borderRadius: '12px',
+        background: callEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
+        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+      });
+
+      const callKnob = document.createElement('div');
+      Object.assign(callKnob.style, {
+        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
+        position: 'absolute', top: '3px', left: callEnabled ? '21px' : '3px', transition: 'left 0.15s'
+      });
+      callToggle.appendChild(callKnob);
+
+      callToggle.addEventListener('click', () => {
+        const newState = !isCallTimerEnabled();
+        setCallTimerEnabled(newState);
+        callToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
+        callKnob.style.left = newState ? '21px' : '3px';
+      });
+
+      callRow.appendChild(callToggle);
+      body.appendChild(callRow);
     }
 
     function renderPanel() {
@@ -1571,6 +1611,141 @@
   }
 
   // ---------------------------------------------------------------
+  // CALL TIMER PLUGIN
+  // Detects Fenrid voice-call chrome (mute/deafen/disconnect) and
+  // shows a live elapsed-time overlay while you are in a call.
+  // ---------------------------------------------------------------
+
+  const CALL_TIMER_KEY = 'fencord-call-timer';
+  const CALL_TIMER_OVERLAY_ID = 'fencord-call-timer';
+  const CALL_BUTTON_TITLES = [
+    'Mute', 'Unmute', 'Deafen', 'Undeafen',
+    'Disconnect', 'Leave', 'Leave Call', 'Disconnect Call'
+  ];
+
+  let callTimerObserver = null;
+  let callTimerPoll = null;
+  let callTimerTick = null;
+  let callJoinedAt = null;
+  let callWasInCall = false;
+
+  function isCallTimerEnabled() {
+    return localStorage.getItem(CALL_TIMER_KEY) === 'true';
+  }
+
+  function isInCall() {
+    return CALL_BUTTON_TITLES.some(title =>
+      document.querySelector(`button[title="${title}"]`)
+    );
+  }
+
+  function formatCallElapsed(ms) {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+    const mm = String(minutes).padStart(hours > 0 ? 2 : 1, '0');
+    const ss = String(seconds).padStart(2, '0');
+    if (hours > 0) return `${hours}:${mm}:${ss}`;
+    return `${minutes}:${ss}`;
+  }
+
+  function ensureCallTimerOverlay() {
+    let el = document.getElementById(CALL_TIMER_OVERLAY_ID);
+    if (el) return el;
+
+    el = document.createElement('div');
+    el.id = CALL_TIMER_OVERLAY_ID;
+    Object.assign(el.style, {
+      position: 'fixed',
+      bottom: '56px',
+      left: '16px',
+      zIndex: '999997',
+      padding: '8px 14px',
+      borderRadius: '8px',
+      background: 'var(--popups-and-modals)',
+      color: 'var(--text-primary)',
+      border: '1px solid var(--primary-action)',
+      fontSize: '13px',
+      fontWeight: '600',
+      fontFamily: 'inherit',
+      letterSpacing: '0.3px',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+      pointerEvents: 'none',
+      userSelect: 'none'
+    });
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function removeCallTimerOverlay() {
+    const el = document.getElementById(CALL_TIMER_OVERLAY_ID);
+    if (el) el.remove();
+  }
+
+  function updateCallTimerOverlay() {
+    if (callJoinedAt == null) return;
+    const el = ensureCallTimerOverlay();
+    el.textContent = `Call · ${formatCallElapsed(Date.now() - callJoinedAt)}`;
+  }
+
+  function startCallClock() {
+    if (callJoinedAt != null) return;
+    callJoinedAt = Date.now();
+    updateCallTimerOverlay();
+    if (!callTimerTick) {
+      callTimerTick = setInterval(updateCallTimerOverlay, 1000);
+    }
+  }
+
+  function stopCallClock() {
+    callJoinedAt = null;
+    if (callTimerTick) {
+      clearInterval(callTimerTick);
+      callTimerTick = null;
+    }
+    removeCallTimerOverlay();
+  }
+
+  function tickCallTimer() {
+    if (!isCallTimerEnabled()) return;
+    const inCall = isInCall();
+    if (inCall && !callWasInCall) {
+      startCallClock();
+    } else if (!inCall && callWasInCall) {
+      stopCallClock();
+    } else if (inCall && callJoinedAt != null) {
+      updateCallTimerOverlay();
+    }
+    callWasInCall = inCall;
+  }
+
+  function setCallTimerEnabled(enabled) {
+    localStorage.setItem(CALL_TIMER_KEY, enabled ? 'true' : 'false');
+    if (enabled) {
+      tickCallTimer();
+      if (!callTimerPoll) {
+        callTimerPoll = setInterval(tickCallTimer, 1000);
+      }
+      if (!callTimerObserver && document.body) {
+        callTimerObserver = new MutationObserver(() => tickCallTimer());
+        callTimerObserver.observe(document.body, { childList: true, subtree: true });
+      }
+    } else {
+      callWasInCall = false;
+      stopCallClock();
+      if (callTimerPoll) {
+        clearInterval(callTimerPoll);
+        callTimerPoll = null;
+      }
+      if (callTimerObserver) {
+        callTimerObserver.disconnect();
+        callTimerObserver = null;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------
   // FENCORD WATERMARK
   // Small persistent theme-aware label in the corner of the app,
   // visible outside the settings panel.
@@ -1589,7 +1764,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.3';
+  const CURRENT_VERSION = '1.4';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -1811,6 +1986,7 @@
     if (getDisplayNameOverride()) setDisplayNameEnabled(true);
     initTimestampFormat();
     if (isImageBlurEnabled()) setImageBlurEnabled(true);
+    if (isCallTimerEnabled()) setCallTimerEnabled(true);
     createFencordWatermark();
     startUpdateChecker();
   }
