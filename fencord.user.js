@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.26
+// @version      1.27
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -782,12 +782,7 @@
         border: '1px solid var(--borders-and-separators)',
         background: 'var(--popups-and-modals)', color: 'var(--text-primary)', cursor: 'pointer'
       });
-      [
-        { id: 'none', label: 'None' },
-        { id: 'matrix', label: 'Matrix — digital rain (--matrix-rain)' },
-        { id: 'rain', label: 'Rain — falling streaks (theme accent)' },
-        { id: 'fire', label: 'Fire — rising embers (warm / accent)' }
-      ].forEach(o => {
+      getBackgroundEffects().forEach(o => {
         const opt = document.createElement('option');
         opt.value = o.id;
         opt.textContent = o.label;
@@ -1560,17 +1555,60 @@
 
   // ---------------------------------------------------------------
   // BACKGROUND EFFECTS (Matrix / Rain / Fire)
-  // One shared dropdown selects a single animated backdrop.
+  // Catalog (labels) loads from effects.json on GitHub.
+  // Engines + the user's selection stay client-side.
   // ---------------------------------------------------------------
 
   const BG_EFFECT_KEY = 'fencord-bg-effect';
   const MATRIX_BG_KEY = 'fencord-matrix-bg'; // legacy
   const RAIN_BG_KEY = 'fencord-rain-bg'; // legacy
   const FIRE_BG_KEY = 'fencord-fire-bg'; // legacy
+  const EFFECTS_CACHE_KEY = 'fencord-remote-effects';
+  const CLIENT_EFFECT_ENGINES = new Set(['matrix', 'rain', 'fire']);
+
+  let remoteEffects = null;
+  let effectsLoadInFlight = null;
+
+  const FALLBACK_EFFECTS = [
+    { id: 'none', label: 'None' },
+    { id: 'matrix', label: 'Matrix — digital rain (--matrix-rain)' },
+    { id: 'rain', label: 'Rain — falling streaks (theme accent)' },
+    { id: 'fire', label: 'Fire — rising embers (warm / accent)' }
+  ];
+
+  function isValidEffectsCatalog(data) {
+    if (!Array.isArray(data) || !data.length) return false;
+    return data.every((e) =>
+      e && typeof e === 'object' &&
+      typeof e.id === 'string' &&
+      typeof e.label === 'string' &&
+      (e.id === 'none' || CLIENT_EFFECT_ENGINES.has(e.id))
+    ) && data.some((e) => e.id === 'none');
+  }
+
+  function getCachedEffects() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(EFFECTS_CACHE_KEY) || 'null');
+      if (isValidEffectsCatalog(parsed)) return parsed;
+    } catch (e) {}
+    return null;
+  }
+
+  function saveCachedEffects(effects) {
+    localStorage.setItem(EFFECTS_CACHE_KEY, JSON.stringify(effects));
+  }
+
+  function getBackgroundEffects() {
+    return remoteEffects || getCachedEffects() || FALLBACK_EFFECTS;
+  }
+
+  function isKnownEffectId(id) {
+    return getBackgroundEffects().some((e) => e.id === id);
+  }
 
   function getBackgroundEffect() {
     const saved = localStorage.getItem(BG_EFFECT_KEY);
-    if (saved === 'none' || saved === 'matrix' || saved === 'rain' || saved === 'fire') return saved;
+    if (saved && isKnownEffectId(saved)) return saved;
     // Migrate old per-effect toggles.
     if (localStorage.getItem(MATRIX_BG_KEY) === 'true') return 'matrix';
     if (localStorage.getItem(RAIN_BG_KEY) === 'true') return 'rain';
@@ -1579,7 +1617,9 @@
   }
 
   function setBackgroundEffect(effect) {
-    const next = (effect === 'matrix' || effect === 'rain' || effect === 'fire') ? effect : 'none';
+    const next = (effect && CLIENT_EFFECT_ENGINES.has(effect) && isKnownEffectId(effect))
+      ? effect
+      : 'none';
     localStorage.setItem(BG_EFFECT_KEY, next);
     localStorage.removeItem(MATRIX_BG_KEY);
     localStorage.removeItem(RAIN_BG_KEY);
@@ -2103,13 +2143,14 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.26';
+  const CURRENT_VERSION = '1.27';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
   const SCRIPT_UPDATE_URL = 'https://github.com/fencord/fencord/raw/main/fencord.user.js';
   const THEMES_URL = `${REPO_RAW_BASE}/themes.json`;
   const FONTS_URL = `${REPO_RAW_BASE}/fonts.json`;
+  const EFFECTS_URL = `${REPO_RAW_BASE}/effects.json`;
   const REPO_PAGE_URL = 'https://github.com/fencord/fencord';
   // Re-check while the tab stays open. ~5m matches GitHub raw CDN cache.
   const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -2189,6 +2230,31 @@
     })();
 
     return fontsLoadInFlight;
+  }
+
+  async function loadEffects() {
+    if (effectsLoadInFlight) return effectsLoadInFlight;
+
+    effectsLoadInFlight = (async () => {
+      try {
+        const res = await fetch(`${EFFECTS_URL}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('bad response');
+        const data = await res.json();
+        if (!isValidEffectsCatalog(data)) throw new Error('invalid effects catalog');
+        remoteEffects = data;
+        saveCachedEffects(data);
+        // Drop unknown/removed effect ids back to none.
+        if (!isKnownEffectId(getBackgroundEffect())) setBackgroundEffect('none');
+        if (typeof refreshSettingsPanel === 'function') refreshSettingsPanel();
+        return data;
+      } catch (e) {
+        return getBackgroundEffects();
+      } finally {
+        effectsLoadInFlight = null;
+      }
+    })();
+
+    return effectsLoadInFlight;
   }
 
   function compareVersions(a, b) {
@@ -2418,6 +2484,7 @@
     createSettingsUI();
     loadThemes();
     loadFonts();
+    loadEffects();
     tryDetectRealUsername();
     if (isRgbEnabled()) setRgbEnabled(true);
     if (getDisplayNameOverride()) setDisplayNameEnabled(true);
