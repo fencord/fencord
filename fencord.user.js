@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.16
+// @version      1.17
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -15,6 +15,23 @@
 
   const STORAGE_KEY = 'fencord-active-theme';
   const CUSTOM_THEMES_KEY = 'fencord-custom-themes';
+  const CREDITS_TEXT = 'made by @123 and @702 on fenrid';
+
+  function makeCreditNote({ compact = false, maxWidth = '420px' } = {}) {
+    const note = document.createElement('div');
+    note.className = 'fencord-credits';
+    note.textContent = CREDITS_TEXT;
+    Object.assign(note.style, {
+      fontSize: compact ? '10px' : '11px',
+      color: 'var(--text-muted)',
+      opacity: '0.75',
+      marginTop: compact ? '8px' : '16px',
+      maxWidth,
+      lineHeight: '1.35',
+      userSelect: 'none'
+    });
+    return note;
+  }
 
   const TEMPLATE_THEME = {
     name: "My Theme",
@@ -224,14 +241,14 @@
     custom[key] = { name: parsed.name, vars: parsed.vars };
     saveCustomThemes(custom);
 
-    alert(`Imported "${parsed.name}"! Select it from the theme list.`);
+    alert(`Imported "${parsed.name}"! Select it from the theme list.\n\n${CREDITS_TEXT}`);
     rerenderPanel();
   }
 
   function copyTemplate() {
     const text = JSON.stringify(TEMPLATE_THEME, null, 2);
     navigator.clipboard.writeText(text).then(() => {
-      alert('Template copied to clipboard! Edit the hex values, then use Import.');
+      alert(`Template copied to clipboard! Edit the hex values, then use Import.\n\n${CREDITS_TEXT}`);
     }).catch(() => {
       prompt('Copy this template manually:', text);
     });
@@ -321,6 +338,7 @@
         <button id="fencord-quick-save" style="flex:1;padding:10px;border-radius:6px;border:none;background:var(--primary-action);color:var(--primary-foreground);cursor:pointer;font-weight:bold;">Save</button>
         <button id="fencord-quick-cancel" style="flex:1;padding:10px;border-radius:6px;border:none;background:var(--secondary-button);color:var(--text-primary);cursor:pointer;">Cancel</button>
       </div>
+      <div style="font-size:10px;color:var(--text-muted);opacity:0.75;user-select:none;">made by @123 and @702 on fenrid</div>
     `;
 
     modalOverlay.appendChild(box);
@@ -716,6 +734,7 @@
       actionsRow.appendChild(makeActionBtn('Copy Template', copyTemplate));
       actionsRow.appendChild(makeActionBtn('Quick 2-Color', () => openQuickThemeUI(renderPanel)));
       body.appendChild(actionsRow);
+      body.appendChild(makeCreditNote());
     }
 
     function renderPluginsTab(body) {
@@ -1122,6 +1141,7 @@
 
       callRow.appendChild(callToggle);
       body.appendChild(callRow);
+      body.appendChild(makeCreditNote());
     }
 
     function renderPanel() {
@@ -1134,11 +1154,20 @@
         fontWeight: '800',
         fontSize: '22px',
         letterSpacing: '1px',
-        padding: '0 14px 24px 14px',
+        padding: '0 14px 8px 14px',
         color: 'var(--primary-action)',
         textShadow: '0 0 12px var(--hover-overlay)'
       });
       sidebar.appendChild(logo);
+
+      const sidebarCredits = makeCreditNote({ compact: true, maxWidth: '160px' });
+      Object.assign(sidebarCredits.style, {
+        padding: '0 14px 20px 14px',
+        marginTop: '0',
+        fontSize: '9px',
+        lineHeight: '1.3'
+      });
+      sidebar.appendChild(sidebarCredits);
 
       const tabs = [
         { id: 'themes', label: '🎨 Themes' },
@@ -1175,11 +1204,13 @@
       Object.assign(heading.style, {
         fontSize: '26px',
         fontWeight: 'bold',
-        marginBottom: '28px'
+        marginBottom: '8px'
       });
       content.appendChild(heading);
+      content.appendChild(makeCreditNote({ compact: true }));
 
       const body = document.createElement('div');
+      Object.assign(body.style, { marginTop: '16px' });
       content.appendChild(body);
 
       if (activeTab === 'themes') {
@@ -1790,7 +1821,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.16';
+  const CURRENT_VERSION = '1.17';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -1979,6 +2010,7 @@
     btnRow.appendChild(noBtn);
 
     banner.appendChild(btnRow);
+    banner.appendChild(makeCreditNote({ compact: true, maxWidth: '100%' }));
 
     return banner;
   }
@@ -2020,7 +2052,7 @@
     watermark.href = 'https://fenrid.com/iAZw7Qfu';
     watermark.target = '_blank';
     watermark.rel = 'noopener noreferrer';
-    watermark.title = 'FENCORD';
+    watermark.title = `FENCORD — ${CREDITS_TEXT}`;
     Object.assign(watermark.style, {
       position: 'fixed',
       bottom: '10px',
@@ -2040,6 +2072,25 @@
     watermark.addEventListener('mouseenter', () => watermark.style.opacity = '1');
     watermark.addEventListener('mouseleave', () => watermark.style.opacity = '0.55');
     document.body.appendChild(watermark);
+
+    if (!document.getElementById('fencord-credits-corner')) {
+      const corner = document.createElement('div');
+      corner.id = 'fencord-credits-corner';
+      corner.textContent = CREDITS_TEXT;
+      Object.assign(corner.style, {
+        position: 'fixed',
+        bottom: '10px',
+        left: '12px',
+        fontSize: '10px',
+        color: 'var(--text-muted)',
+        opacity: '0.45',
+        zIndex: '999998',
+        userSelect: 'none',
+        fontFamily: 'inherit',
+        pointerEvents: 'none'
+      });
+      document.body.appendChild(corner);
+    }
   }
 
   function init() {
