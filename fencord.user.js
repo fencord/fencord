@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.19
+// @version      1.20
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -433,17 +433,30 @@
   const FONT_KEY = 'fencord-active-font';
   const FONT_LINK_ID = 'fencord-font-link';
   const FONT_STYLE_ID = 'fencord-font-style';
+  const FONTS_CACHE_KEY = 'fencord-remote-fonts';
+  let remoteFonts = null;
 
-  const presetFonts = [
+  const FALLBACK_FONTS = [
     { id: 'default', label: 'Default', family: null, googleName: null },
     { id: 'inter', label: 'Inter', family: "'Inter', sans-serif", googleName: 'Inter:wght@400;600;700' },
-    { id: 'poppins', label: 'Poppins', family: "'Poppins', sans-serif", googleName: 'Poppins:wght@400;600;700' },
-    { id: 'jetbrains', label: 'JetBrains Mono', family: "'JetBrains Mono', monospace", googleName: 'JetBrains+Mono:wght@400;600;700' },
-    { id: 'comicneue', label: 'Comic Neue', family: "'Comic Neue', cursive", googleName: 'Comic+Neue:wght@400;700' },
-    { id: 'pressstart', label: 'Press Start 2P', family: "'Press Start 2P', system-ui", googleName: 'Press+Start+2P' },
-    { id: 'spacemono', label: 'Space Mono', family: "'Space Mono', monospace", googleName: 'Space+Mono:wght@400;700' },
     { id: 'couriernew', label: 'Courier New', family: "'Courier New', Courier, monospace", googleName: null }
   ];
+
+  function getCachedFonts() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FONTS_CACHE_KEY) || 'null');
+      if (Array.isArray(parsed) && parsed.length && parsed[0].id === 'default') return parsed;
+    } catch (e) {}
+    return null;
+  }
+
+  function saveCachedFonts(fonts) {
+    localStorage.setItem(FONTS_CACHE_KEY, JSON.stringify(fonts));
+  }
+
+  function getPresetFonts() {
+    return remoteFonts || getCachedFonts() || FALLBACK_FONTS;
+  }
 
   function getSavedFont() {
     try {
@@ -491,7 +504,7 @@
   }
 
   function setPresetFont(presetId) {
-    const preset = presetFonts.find(f => f.id === presetId);
+    const preset = getPresetFonts().find(f => f.id === presetId);
     if (!preset) return;
     const fontData = preset.family ? { family: preset.family, googleName: preset.googleName, label: preset.label } : null;
     saveFont(fontData);
@@ -845,7 +858,7 @@
         color: 'var(--text-primary)',
         cursor: 'pointer'
       });
-      presetFonts.forEach(f => {
+      getPresetFonts().forEach(f => {
         const opt = document.createElement('option');
         opt.value = f.id;
         opt.textContent = f.label;
@@ -853,7 +866,7 @@
       });
       // Reflect current selection if it matches a preset
       if (savedFont) {
-        const match = presetFonts.find(f => f.label === savedFont.label);
+        const match = getPresetFonts().find(f => f.label === savedFont.label);
         if (match) fontSelect.value = match.id;
       } else {
         fontSelect.value = 'default';
@@ -1835,12 +1848,13 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.19';
+  const CURRENT_VERSION = '1.20';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
   const SCRIPT_UPDATE_URL = `${REPO_RAW_BASE}/fencord.user.js`;
   const THEMES_URL = `${REPO_RAW_BASE}/themes.json`;
+  const FONTS_URL = `${REPO_RAW_BASE}/fonts.json`;
   const REPO_PAGE_URL = 'https://github.com/fencord/fencord';
   // Re-check while the tab stays open. ~5m matches GitHub raw CDN cache.
   const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -1849,6 +1863,7 @@
   let updateCheckInFlight = null;
   let updateToastDismissed = false;
   let themesLoadInFlight = null;
+  let fontsLoadInFlight = null;
 
   function isValidThemesCatalog(data) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
@@ -1859,6 +1874,17 @@
       if (!theme.vars || typeof theme.vars !== 'object') return false;
     }
     return true;
+  }
+
+  function isValidFontsCatalog(data) {
+    if (!Array.isArray(data) || !data.length) return false;
+    return data.every((f) =>
+      f && typeof f === 'object' &&
+      typeof f.id === 'string' &&
+      typeof f.label === 'string' &&
+      ('family' in f) &&
+      ('googleName' in f)
+    );
   }
 
   async function loadThemes() {
@@ -1885,6 +1911,29 @@
     })();
 
     return themesLoadInFlight;
+  }
+
+  async function loadFonts() {
+    if (fontsLoadInFlight) return fontsLoadInFlight;
+
+    fontsLoadInFlight = (async () => {
+      try {
+        const res = await fetch(`${FONTS_URL}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('bad response');
+        const data = await res.json();
+        if (!isValidFontsCatalog(data)) throw new Error('invalid fonts catalog');
+        remoteFonts = data;
+        saveCachedFonts(data);
+        if (typeof refreshSettingsPanel === 'function') refreshSettingsPanel();
+        return data;
+      } catch (e) {
+        return getPresetFonts();
+      } finally {
+        fontsLoadInFlight = null;
+      }
+    })();
+
+    return fontsLoadInFlight;
   }
 
   function compareVersions(a, b) {
@@ -2137,6 +2186,7 @@
     initFont();
     createSettingsUI();
     loadThemes();
+    loadFonts();
     tryDetectRealUsername();
     if (isRgbEnabled()) setRgbEnabled(true);
     if (getDisplayNameOverride()) setDisplayNameEnabled(true);
