@@ -2244,12 +2244,9 @@
   // live elapsed timer next to the label — no MutationObserver.
   // ---------------------------------------------------------------
 
-  const CALL_TIMER_KEY = 'fencord-call-timer';
+ const CALL_TIMER_KEY = 'fencord-call-timer';
   const CALL_TIMER_EL_ID = 'fencord-call-timer';
-  // Require a few consecutive misses before treating as left, so brief
-  // React re-renders don't restart the clock.
   const CALL_LEAVE_CONFIRM_POLLS = 3;
-
   let callTimerPoll = null;
   let callJoinedAt = null;
   let callMissCount = 0;
@@ -2259,8 +2256,13 @@
   }
 
   function findVoiceConnectedLabel() {
-    // Exact Fenrid class set from their VoiceConnectedFooter.
+    // Try exact class match first (legacy)
     for (const el of document.querySelectorAll('span.text-xs.font-semibold.text-blue-500')) {
+      if (el.textContent.trim() === 'Voice Connected') return el;
+    }
+    // Fallback: search all spans and divs for the text
+    const allEls = document.querySelectorAll('span, div');
+    for (const el of allEls) {
       if (el.textContent.trim() === 'Voice Connected') return el;
     }
     return null;
@@ -2268,7 +2270,17 @@
 
   function isInCall() {
     if (findVoiceConnectedLabel()) return true;
-    return !!document.querySelector('button[title="Disconnect"]');
+    // Try multiple selectors for disconnect button (Fenrid may change classes)
+    if (document.querySelector('button[title="Disconnect"]')) return true;
+    if (document.querySelector('button[aria-label*="Disconnect" i]')) return true;
+    if (document.querySelector('button[aria-label*="Leave" i]')) return true;
+    if (document.querySelector('[class*="disconnect" i]')) return true;
+    // Check for any "Voice Connected" text anywhere
+    const allEls = document.querySelectorAll('span, div');
+    for (const el of allEls) {
+      if (el.textContent.trim().toLowerCase() === 'voice connected') return true;
+    }
+    return false;
   }
 
   function formatCallElapsed(ms) {
@@ -2286,12 +2298,8 @@
     let el = document.getElementById(CALL_TIMER_EL_ID);
     const label = findVoiceConnectedLabel();
 
+    // If we found the label, place timer next to it
     if (label && label.parentElement) {
-      // Prefer sitting inline next to "Voice Connected".
-      if (el && el.parentElement !== label.parentElement) {
-        el.remove();
-        el = null;
-      }
       if (!el) {
         el = document.createElement('span');
         el.id = CALL_TIMER_EL_ID;
@@ -2299,21 +2307,25 @@
           fontSize: '12px',
           fontWeight: '600',
           color: 'var(--text-muted)',
+          marginLeft: '6px',
           fontVariantNumeric: 'tabular-nums',
           letterSpacing: '0.2px',
           userSelect: 'none'
         });
+      }
+      // Move to correct parent if needed
+      if (el.parentElement && el.parentElement !== label.parentElement) {
+        el.remove();
+      }
+      if (!el.parentElement) {
         label.parentElement.insertBefore(el, label.nextSibling);
       }
       return el;
     }
 
-    // Fallback floating pill if the label isn't found but Disconnect is.
-    if (el && el.tagName === 'SPAN' && el.parentElement !== document.body) {
-      el.remove();
-      el = null;
-    }
-    if (!el) {
+    // Fallback floating pill
+    if (!el || el.tagName !== 'DIV') {
+      if (el) el.remove();
       el = document.createElement('div');
       el.id = CALL_TIMER_EL_ID;
       Object.assign(el.style, {
