@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.28
+// @version      1.29
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1130,6 +1130,42 @@
       blurRow.appendChild(blurToggle);
       pluginGrid.appendChild(blurRow);
 
+      // --- Soft Tap Sounds ---
+      const tapsRow = document.createElement('div');
+      stylePluginCard(tapsRow);
+      Object.assign(tapsRow.style, {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px'
+      });
+
+      const tapsLabel = document.createElement('div');
+      tapsLabel.innerHTML = `<div style="font-weight:600;">Soft Tap Sounds</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Quiet taps when typing or clicking</div>`;
+      tapsRow.appendChild(tapsLabel);
+
+      const tapsToggle = document.createElement('div');
+      const tapsEnabled = isSoftTapsEnabled();
+      Object.assign(tapsToggle.style, {
+        width: '42px', height: '24px', borderRadius: '12px',
+        background: tapsEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
+        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+      });
+
+      const tapsKnob = document.createElement('div');
+      Object.assign(tapsKnob.style, {
+        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
+        position: 'absolute', top: '3px', left: tapsEnabled ? '21px' : '3px', transition: 'left 0.15s'
+      });
+      tapsToggle.appendChild(tapsKnob);
+
+      tapsToggle.addEventListener('click', () => {
+        const newState = !isSoftTapsEnabled();
+        setSoftTapsEnabled(newState);
+        tapsToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
+        tapsKnob.style.left = newState ? '21px' : '3px';
+      });
+
+      tapsRow.appendChild(tapsToggle);
+      pluginGrid.appendChild(tapsRow);
+
       // --- Call Timer ---
       const callRow = document.createElement('div');
       stylePluginCard(callRow);
@@ -1558,6 +1594,103 @@
         imageBlurObserver = null;
       }
     }
+  }
+
+  // ---------------------------------------------------------------
+  // SOFT TAP SOUNDS PLUGIN
+  // Quiet synthesized taps on keypress and click (Web Audio — no files).
+  // ---------------------------------------------------------------
+
+  const SOFT_TAPS_KEY = 'fencord-soft-taps';
+
+  let softTapsCtx = null;
+  let softTapsKeyHandler = null;
+  let softTapsClickHandler = null;
+  let softTapsLastAt = 0;
+
+  function isSoftTapsEnabled() {
+    return localStorage.getItem(SOFT_TAPS_KEY) === 'true';
+  }
+
+  function ensureSoftTapsAudio() {
+    if (!softTapsCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      softTapsCtx = new AC();
+    }
+    if (softTapsCtx.state === 'suspended') softTapsCtx.resume().catch(() => {});
+    return softTapsCtx;
+  }
+
+  function playSoftTap({ kind = 'key' } = {}) {
+    const ctx = ensureSoftTapsAudio();
+    if (!ctx) return;
+
+    // Light rate-limit so held keys / burst clicks don't stack into noise.
+    const now = performance.now();
+    const minGap = kind === 'key' ? 28 : 40;
+    if (now - softTapsLastAt < minGap) return;
+    softTapsLastAt = now;
+
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    // Soft tick: higher for keys, a touch lower for clicks.
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(kind === 'click' ? 620 : 880, t0);
+    osc.frequency.exponentialRampToValueAtTime(kind === 'click' ? 280 : 420, t0 + 0.045);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2400, t0);
+
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(kind === 'click' ? 0.045 : 0.032, t0 + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.055);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.07);
+  }
+
+  function startSoftTaps() {
+    stopSoftTaps();
+
+    softTapsKeyHandler = (e) => {
+      if (!isSoftTapsEnabled()) return;
+      if (e.repeat) return;
+      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+      playSoftTap({ kind: 'key' });
+    };
+
+    softTapsClickHandler = (e) => {
+      if (!isSoftTapsEnabled()) return;
+      if (typeof e.button === 'number' && e.button !== 0) return;
+      playSoftTap({ kind: 'click' });
+    };
+
+    document.addEventListener('keydown', softTapsKeyHandler, true);
+    document.addEventListener('pointerdown', softTapsClickHandler, true);
+  }
+
+  function stopSoftTaps() {
+    if (softTapsKeyHandler) {
+      document.removeEventListener('keydown', softTapsKeyHandler, true);
+      softTapsKeyHandler = null;
+    }
+    if (softTapsClickHandler) {
+      document.removeEventListener('pointerdown', softTapsClickHandler, true);
+      softTapsClickHandler = null;
+    }
+  }
+
+  function setSoftTapsEnabled(enabled) {
+    localStorage.setItem(SOFT_TAPS_KEY, enabled ? 'true' : 'false');
+    if (enabled) startSoftTaps();
+    else stopSoftTaps();
   }
 
   // ---------------------------------------------------------------
@@ -2150,7 +2283,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.28';
+  const CURRENT_VERSION = '1.29';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2497,6 +2630,7 @@
     if (getDisplayNameOverride()) setDisplayNameEnabled(true);
     initTimestampFormat();
     if (isImageBlurEnabled()) setImageBlurEnabled(true);
+    if (isSoftTapsEnabled()) setSoftTapsEnabled(true);
     setBackgroundEffect(getBackgroundEffect());
     // Call Timer is marked non-working; do not auto-start even if previously enabled.
     // if (isCallTimerEnabled()) setCallTimerEnabled(true);
