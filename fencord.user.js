@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.12
+// @version      1.13
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -515,26 +515,39 @@
       }
 
       const themes = getAllThemes();
-      for (const [key, theme] of Object.entries(themes)) {
+      const entries = Object.entries(themes).sort(([keyA, themeA], [keyB, themeB]) => {
+        const customA = keyA.startsWith('custom_');
+        const customB = keyB.startsWith('custom_');
+        if (keyA === 'none') return -1;
+        if (keyB === 'none') return 1;
+        if (customA !== customB) return customA ? 1 : -1;
+        return themeA.name.localeCompare(themeB.name);
+      });
+
+      for (const [key, theme] of entries) {
+        const selected = getSavedTheme() === key;
         const row = document.createElement('div');
         Object.assign(row.style, {
           display: 'flex',
           alignItems: 'center',
           gap: '4px',
           marginBottom: '4px',
-          maxWidth: '420px'
+          maxWidth: '420px',
+          width: '100%'
         });
 
         const option = document.createElement('div');
         option.textContent = theme.name;
         Object.assign(option.style, {
           flex: '1',
+          minWidth: '0',
           padding: '10px 14px',
           borderRadius: '6px',
           cursor: 'pointer',
-          background: getSavedTheme() === key ? 'var(--hover-overlay)' : 'transparent'
+          background: selected ? 'var(--hover-overlay)' : 'transparent',
+          color: 'var(--text-primary)'
         });
-        option.addEventListener('mouseenter', () => option.style.background = 'var(--hover-overlay)');
+        option.addEventListener('mouseenter', () => { option.style.background = 'var(--hover-overlay)'; });
         option.addEventListener('mouseleave', () => {
           option.style.background = getSavedTheme() === key ? 'var(--hover-overlay)' : 'transparent';
         });
@@ -545,17 +558,37 @@
         });
         row.appendChild(option);
 
+        const trailing = document.createElement('div');
+        Object.assign(trailing.style, {
+          width: '40px',
+          flexShrink: '0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        });
+
         if (key.startsWith('custom_')) {
           const delBtn = document.createElement('div');
-          delBtn.textContent = '🗑️';
+          delBtn.textContent = '✕';
           Object.assign(delBtn.style, {
-            padding: '10px 14px',
+            width: '100%',
+            textAlign: 'center',
+            padding: '10px 0',
             borderRadius: '6px',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            color: 'var(--text-muted)',
+            fontSize: '13px',
+            fontWeight: '700'
           });
           delBtn.title = 'Delete theme';
-          delBtn.addEventListener('mouseenter', () => delBtn.style.background = 'var(--danger-secondary-button)');
-          delBtn.addEventListener('mouseleave', () => delBtn.style.background = '');
+          delBtn.addEventListener('mouseenter', () => {
+            delBtn.style.background = 'var(--danger-secondary-button)';
+            delBtn.style.color = 'var(--text-primary)';
+          });
+          delBtn.addEventListener('mouseleave', () => {
+            delBtn.style.background = '';
+            delBtn.style.color = 'var(--text-muted)';
+          });
           delBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if (!confirm(`Delete theme "${theme.name}"?`)) return;
@@ -571,9 +604,10 @@
 
             renderPanel();
           });
-          row.appendChild(delBtn);
+          trailing.appendChild(delBtn);
         }
 
+        row.appendChild(trailing);
         body.appendChild(row);
       }
 
@@ -582,39 +616,36 @@
       body.appendChild(divider);
 
       const actionsRow = document.createElement('div');
-      Object.assign(actionsRow.style, { display: 'flex', gap: '10px', flexWrap: 'wrap', maxWidth: '420px' });
-
-      const importBtn = document.createElement('div');
-      importBtn.textContent = '📥 Import Theme';
-      Object.assign(importBtn.style, {
-        padding: '10px 16px', borderRadius: '6px', cursor: 'pointer', background: 'var(--secondary-button)', color: 'var(--text-primary)'
+      Object.assign(actionsRow.style, {
+        display: 'flex',
+        gap: '8px',
+        maxWidth: '420px',
+        width: '100%'
       });
-      importBtn.addEventListener('mouseenter', () => importBtn.style.background = 'var(--secondary-button-hover)');
-      importBtn.addEventListener('mouseleave', () => importBtn.style.background = 'var(--secondary-button)');
-      importBtn.addEventListener('click', () => importThemeFlow(renderPanel));
-      actionsRow.appendChild(importBtn);
 
-      const templateBtn = document.createElement('div');
-      templateBtn.textContent = '📋 Copy Template';
-      Object.assign(templateBtn.style, {
-        padding: '10px 16px', borderRadius: '6px', cursor: 'pointer', background: 'var(--secondary-button)', color: 'var(--text-primary)'
-      });
-      templateBtn.addEventListener('mouseenter', () => templateBtn.style.background = 'var(--secondary-button-hover)');
-      templateBtn.addEventListener('mouseleave', () => templateBtn.style.background = 'var(--secondary-button)');
-      templateBtn.addEventListener('click', copyTemplate);
-      actionsRow.appendChild(templateBtn);
+      function makeActionBtn(label, onClick) {
+        const btn = document.createElement('div');
+        btn.textContent = label;
+        Object.assign(btn.style, {
+          flex: '1',
+          textAlign: 'center',
+          padding: '10px 12px',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          background: 'var(--secondary-button)',
+          color: 'var(--text-primary)',
+          fontSize: '13px',
+          whiteSpace: 'nowrap'
+        });
+        btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--secondary-button-hover)'; });
+        btn.addEventListener('mouseleave', () => { btn.style.background = 'var(--secondary-button)'; });
+        btn.addEventListener('click', onClick);
+        return btn;
+      }
 
-      const quickBtn = document.createElement('div');
-      quickBtn.textContent = '🎨 Quick 2-Color Theme';
-      Object.assign(quickBtn.style, {
-        padding: '10px 16px', borderRadius: '6px', cursor: 'pointer',
-        background: 'var(--primary-action)', color: 'var(--primary-foreground)', fontWeight: 'bold'
-      });
-      quickBtn.addEventListener('mouseenter', () => quickBtn.style.background = 'var(--primary-hover)');
-      quickBtn.addEventListener('mouseleave', () => quickBtn.style.background = 'var(--primary-action)');
-      quickBtn.addEventListener('click', () => openQuickThemeUI(renderPanel));
-      actionsRow.appendChild(quickBtn);
-
+      actionsRow.appendChild(makeActionBtn('Import Theme', () => importThemeFlow(renderPanel)));
+      actionsRow.appendChild(makeActionBtn('Copy Template', copyTemplate));
+      actionsRow.appendChild(makeActionBtn('Quick 2-Color', () => openQuickThemeUI(renderPanel)));
       body.appendChild(actionsRow);
     }
 
@@ -1549,7 +1580,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.12';
+  const CURRENT_VERSION = '1.13';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
