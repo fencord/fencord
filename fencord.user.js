@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.7
+// @version      1.8
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1613,8 +1613,9 @@
   // ---------------------------------------------------------------
   // CALL TIMER PLUGIN
   // Fenrid shows a "Voice Connected" footer with a channel/server
-  // name line. We poll for that chrome and inject a live elapsed
-  // timer beside the call name — no MutationObserver.
+  // name line. We poll for that chrome and pin a fixed overlay
+  // beside the call name (not injected into React's tree — that
+  // got wiped on every voice-footer re-render).
   // ---------------------------------------------------------------
 
   const CALL_TIMER_KEY = 'fencord-call-timer';
@@ -1632,7 +1633,6 @@
   }
 
   function findVoiceConnectedLabel() {
-    // Exact Fenrid class set from their VoiceConnectedFooter.
     for (const el of document.querySelectorAll('span.text-xs.font-semibold.text-blue-500')) {
       if (el.textContent.trim() === 'Voice Connected') return el;
     }
@@ -1640,14 +1640,21 @@
   }
 
   // The "Channel / Server" row under Voice Connected.
-  function findCallNameHost() {
+  function findCallNameRow() {
     const label = findVoiceConnectedLabel();
     if (!label) return null;
-    const footer = label.closest('div.border-t');
+
+    // Voice Connected → cluster → header → footer
+    const footer =
+      label.closest('div.border-t') ||
+      label.parentElement?.parentElement?.parentElement;
     if (!footer) return null;
-    const nameP = footer.querySelector('p.truncate.leading-tight, p.text-text-muted.truncate');
-    if (!nameP || !nameP.parentElement) return null;
-    return { host: nameP.parentElement, nameP };
+
+    for (const p of footer.querySelectorAll('p')) {
+      if (p.textContent.includes(' / ')) return p;
+    }
+    // Fallback: first muted/truncated paragraph in the footer
+    return footer.querySelector('p.truncate, p.text-text-muted') || null;
   }
 
   function isInCall() {
@@ -1666,83 +1673,63 @@
     return `${minutes}:${ss}`;
   }
 
-  function styleInlineTimer(el) {
-    Object.assign(el.style, {
-      fontSize: '15px',
-      fontWeight: '700',
-      color: 'var(--text-primary)',
-      fontVariantNumeric: 'tabular-nums',
-      letterSpacing: '0.3px',
-      userSelect: 'none',
-      flexShrink: '0',
-      lineHeight: '1',
-      whiteSpace: 'nowrap'
-    });
-  }
-
   function ensureCallTimerEl() {
     let el = document.getElementById(CALL_TIMER_EL_ID);
-    const row = findCallNameHost();
+    if (el) return el;
 
-    if (row) {
-      const { host, nameP } = row;
-      Object.assign(host.style, {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '10px'
-      });
-      Object.assign(nameP.style, {
-        flex: '1',
-        minWidth: '0',
-        marginBottom: '0'
-      });
-
-      if (el && el.parentElement !== host) {
-        el.remove();
-        el = null;
-      }
-      if (!el) {
-        el = document.createElement('span');
-        el.id = CALL_TIMER_EL_ID;
-        styleInlineTimer(el);
-        host.appendChild(el);
-      } else {
-        styleInlineTimer(el);
-      }
-      return el;
-    }
-
-    // Fallback floating pill if the name row isn't found but Disconnect is.
-    if (el && el.tagName === 'SPAN' && el.parentElement !== document.body) {
-      el.remove();
-      el = null;
-    }
-    if (!el) {
-      el = document.createElement('div');
-      el.id = CALL_TIMER_EL_ID;
-      Object.assign(el.style, {
-        position: 'fixed',
-        bottom: '72px',
-        left: '88px',
-        zIndex: '999997',
-        padding: '8px 14px',
-        borderRadius: '8px',
-        background: 'var(--popups-and-modals)',
-        color: 'var(--text-primary)',
-        border: '1px solid var(--primary-action)',
-        fontSize: '16px',
-        fontWeight: '700',
-        fontFamily: 'inherit',
-        fontVariantNumeric: 'tabular-nums',
-        letterSpacing: '0.3px',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-        pointerEvents: 'none',
-        userSelect: 'none'
-      });
-      document.body.appendChild(el);
-    }
+    el = document.createElement('div');
+    el.id = CALL_TIMER_EL_ID;
+    Object.assign(el.style, {
+      position: 'fixed',
+      zIndex: '999997',
+      padding: '2px 0',
+      color: 'var(--text-primary)',
+      fontSize: '15px',
+      fontWeight: '700',
+      fontFamily: 'inherit',
+      fontVariantNumeric: 'tabular-nums',
+      letterSpacing: '0.3px',
+      lineHeight: '1',
+      whiteSpace: 'nowrap',
+      pointerEvents: 'none',
+      userSelect: 'none',
+      textShadow: '0 1px 2px rgba(0,0,0,0.45)'
+    });
+    document.body.appendChild(el);
     return el;
+  }
+
+  function positionCallTimerEl(el) {
+    const nameP = findCallNameRow();
+    const label = findVoiceConnectedLabel();
+
+    if (nameP) {
+      // Pin to the right side of the call-name row (Channel / Server).
+      const host = nameP.parentElement || nameP;
+      const rect = host.getBoundingClientRect();
+      const tw = el.offsetWidth || 52;
+      const th = el.offsetHeight || 15;
+      Object.assign(el.style, {
+        top: `${Math.round(rect.top + (rect.height - th) / 2)}px`,
+        left: `${Math.round(rect.right - tw)}px`,
+        bottom: 'auto',
+        right: 'auto'
+      });
+      return;
+    }
+
+    if (label) {
+      const rect = label.getBoundingClientRect();
+      Object.assign(el.style, {
+        top: `${Math.round(rect.top + (rect.height - 15) / 2)}px`,
+        left: `${Math.round(rect.right + 10)}px`,
+        bottom: 'auto',
+        right: 'auto'
+      });
+      return;
+    }
+
+    Object.assign(el.style, { top: 'auto', bottom: '72px', left: '88px', right: 'auto' });
   }
 
   function removeCallTimerEl() {
@@ -1753,9 +1740,8 @@
   function updateCallTimerDisplay() {
     if (callJoinedAt == null) return;
     const el = ensureCallTimerEl();
-    if (!el) return;
-    const time = formatCallElapsed(Date.now() - callJoinedAt);
-    el.textContent = el.tagName === 'SPAN' ? time : `Call · ${time}`;
+    el.textContent = formatCallElapsed(Date.now() - callJoinedAt);
+    positionCallTimerEl(el);
   }
 
   function startCallClock() {
@@ -1826,7 +1812,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.7';
+  const CURRENT_VERSION = '1.8';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
