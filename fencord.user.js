@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.17
+// @version      1.18
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -22,13 +22,14 @@
     note.className = 'fencord-credits';
     note.textContent = CREDITS_TEXT;
     Object.assign(note.style, {
-      fontSize: compact ? '10px' : '11px',
-      color: 'var(--text-muted)',
-      opacity: '0.75',
+      fontSize: compact ? '11px' : '12px',
+      color: 'var(--text-secondary)',
+      opacity: '1',
       marginTop: compact ? '8px' : '16px',
       maxWidth,
       lineHeight: '1.35',
-      userSelect: 'none'
+      userSelect: 'none',
+      fontWeight: '500'
     });
     return note;
   }
@@ -338,7 +339,7 @@
         <button id="fencord-quick-save" style="flex:1;padding:10px;border-radius:6px;border:none;background:var(--primary-action);color:var(--primary-foreground);cursor:pointer;font-weight:bold;">Save</button>
         <button id="fencord-quick-cancel" style="flex:1;padding:10px;border-radius:6px;border:none;background:var(--secondary-button);color:var(--text-primary);cursor:pointer;">Cancel</button>
       </div>
-      <div style="font-size:10px;color:var(--text-muted);opacity:0.75;user-select:none;">made by @123 and @702 on fenrid</div>
+      <div style="font-size:11px;color:var(--text-secondary);user-select:none;font-weight:500;">made by @123 and @702 on fenrid</div>
     `;
 
     modalOverlay.appendChild(box);
@@ -1164,8 +1165,9 @@
       Object.assign(sidebarCredits.style, {
         padding: '0 14px 20px 14px',
         marginTop: '0',
-        fontSize: '9px',
-        lineHeight: '1.3'
+        fontSize: '11px',
+        lineHeight: '1.3',
+        color: 'var(--text-secondary)'
       });
       sidebar.appendChild(sidebarCredits);
 
@@ -1821,7 +1823,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.17';
+  const CURRENT_VERSION = '1.18';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2081,13 +2083,14 @@
         position: 'fixed',
         bottom: '10px',
         left: '12px',
-        fontSize: '10px',
-        color: 'var(--text-muted)',
-        opacity: '0.45',
-        zIndex: '999998',
+        fontSize: '11px',
+        color: 'var(--text-secondary)',
+        opacity: '0.85',
+        zIndex: '1000000',
         userSelect: 'none',
         fontFamily: 'inherit',
-        pointerEvents: 'none'
+        pointerEvents: 'none',
+        fontWeight: '500'
       });
       document.body.appendChild(corner);
     }
