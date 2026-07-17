@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.15
+// @version      1.16
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -105,6 +105,62 @@
     return { ...getBuiltInThemes(), ...getCustomThemes() };
   }
 
+  function hexToRgba(hex, alpha) {
+    const raw = String(hex || '').replace('#', '').trim();
+    if (raw.length !== 3 && raw.length !== 6) return `rgba(0, 0, 0, ${alpha})`;
+    const full = raw.length === 3
+      ? raw.split('').map((c) => c + c).join('')
+      : raw;
+    const num = parseInt(full, 16);
+    if (Number.isNaN(num)) return `rgba(0, 0, 0, ${alpha})`;
+    const r = (num >> 16) & 0xff;
+    const g = (num >> 8) & 0xff;
+    const b = num & 0xff;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function getActiveThemeVars() {
+    const theme = getAllThemes()[getSavedTheme()];
+    return (theme && theme.vars) || {};
+  }
+
+  function getMatrixRainColor() {
+    const vars = getActiveThemeVars();
+    return (
+      vars['--matrix-rain'] ||
+      vars['--accent-vibrant'] ||
+      vars['--primary-action'] ||
+      '#00ff00'
+    );
+  }
+
+  function updateMatrixBackdropStyle() {
+    const style = document.getElementById(MATRIX_STYLE_ID);
+    if (!style) return;
+
+    const vars = getActiveThemeVars();
+    const bg = vars['--background'] || '#000000';
+    const server = vars['--server-sidebar'] || bg;
+    const channel = vars['--channel-sidebar'] || bg;
+    const chat = vars['--main-chat-area'] || bg;
+    const members = vars['--member-list'] || server;
+    const popups = vars['--popups-and-modals'] || channel;
+
+    style.textContent = `
+      html, body {
+        background: #000 !important;
+      }
+      :root {
+        --background: ${hexToRgba(bg, 0.72)} !important;
+        --server-sidebar: ${hexToRgba(server, 0.78)} !important;
+        --channel-sidebar: ${hexToRgba(channel, 0.72)} !important;
+        --main-chat-area: ${hexToRgba(chat, 0.65)} !important;
+        --member-list: ${hexToRgba(members, 0.78)} !important;
+        --popups-and-modals: ${hexToRgba(popups, 0.92)} !important;
+      }
+    `;
+  }
+
   function applyTheme(key) {
     let styleEl = document.getElementById('fencord-theme');
     if (!styleEl) {
@@ -117,15 +173,23 @@
     if (!theme || key === 'none') {
       styleEl.textContent = '';
     } else {
-      const rules = Object.entries(theme.vars)
+      const vars = { ...theme.vars };
+      // Older cached themes may lack --matrix-rain; derive from accent.
+      if (!vars['--matrix-rain']) {
+        vars['--matrix-rain'] =
+          vars['--accent-vibrant'] || vars['--primary-action'] || '#00ff00';
+      }
+      const rules = Object.entries(vars)
         .map(([k, v]) => `${k}: ${v} !important;`)
         .join('\n');
       styleEl.textContent = `:root {\n${rules}\n}`;
     }
 
-    // Keep Matrix translucency on top of theme vars when that plugin is on.
-    const matrixStyle = document.getElementById(MATRIX_STYLE_ID);
-    if (matrixStyle) document.head.appendChild(matrixStyle);
+    if (document.getElementById(MATRIX_STYLE_ID)) {
+      updateMatrixBackdropStyle();
+      const matrixStyle = document.getElementById(MATRIX_STYLE_ID);
+      if (matrixStyle) document.head.appendChild(matrixStyle);
+    }
   }
 
   function getSavedTheme() {
@@ -1474,32 +1538,13 @@
     if (style) style.remove();
   }
 
-  function getMatrixRainColor() {
-    const fromTheme = getComputedStyle(document.documentElement)
-      .getPropertyValue('--matrix-rain')
-      .trim();
-    return fromTheme || '#00ff00';
-  }
-
   function startMatrixBg() {
     stopMatrixBg();
 
     const style = document.createElement('style');
     style.id = MATRIX_STYLE_ID;
-    style.textContent = `
-      html, body {
-        background: #000 !important;
-      }
-      :root {
-        --background: rgba(0, 12, 0, 0.72) !important;
-        --server-sidebar: rgba(0, 14, 0, 0.78) !important;
-        --channel-sidebar: rgba(0, 12, 0, 0.72) !important;
-        --main-chat-area: rgba(0, 10, 0, 0.65) !important;
-        --member-list: rgba(0, 14, 0, 0.78) !important;
-        --popups-and-modals: rgba(6, 18, 6, 0.92) !important;
-      }
-    `;
     document.head.appendChild(style);
+    updateMatrixBackdropStyle();
 
     const canvas = document.createElement('canvas');
     canvas.id = MATRIX_CANVAS_ID;
@@ -1745,7 +1790,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.15';
+  const CURRENT_VERSION = '1.16';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
