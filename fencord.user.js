@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.21
+// @version      1.22
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -152,8 +152,7 @@
     );
   }
 
-  function updateMatrixBackdropStyle() {
-    const style = document.getElementById(MATRIX_STYLE_ID);
+  function fillEffectBackdropStyle(style) {
     if (!style) return;
 
     const vars = getActiveThemeVars();
@@ -177,6 +176,23 @@
         --popups-and-modals: ${hexToRgba(popups, 0.92)} !important;
       }
     `;
+  }
+
+  function updateMatrixBackdropStyle() {
+    fillEffectBackdropStyle(document.getElementById(MATRIX_STYLE_ID));
+  }
+
+  function updateRainBackdropStyle() {
+    fillEffectBackdropStyle(document.getElementById(RAIN_STYLE_ID));
+  }
+
+  function refreshEffectBackdrops() {
+    for (const id of [MATRIX_STYLE_ID, RAIN_STYLE_ID]) {
+      const style = document.getElementById(id);
+      if (!style) continue;
+      fillEffectBackdropStyle(style);
+      document.head.appendChild(style);
+    }
   }
 
   function applyTheme(key) {
@@ -203,11 +219,7 @@
       styleEl.textContent = `:root {\n${rules}\n}`;
     }
 
-    if (document.getElementById(MATRIX_STYLE_ID)) {
-      updateMatrixBackdropStyle();
-      const matrixStyle = document.getElementById(MATRIX_STYLE_ID);
-      if (matrixStyle) document.head.appendChild(matrixStyle);
-    }
+    refreshEffectBackdrops();
   }
 
   function getSavedTheme() {
@@ -1109,10 +1121,54 @@
         setMatrixBgEnabled(newState);
         matrixToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
         matrixKnob.style.left = newState ? '21px' : '3px';
+        // Rain is turned off when Matrix is on — refresh that toggle too.
+        renderPanel();
       });
 
       matrixRow.appendChild(matrixToggle);
       body.appendChild(matrixRow);
+
+      // --- Rain Background section ---
+      const rainDivider = document.createElement('div');
+      Object.assign(rainDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
+      body.appendChild(rainDivider);
+
+      const rainRow = document.createElement('div');
+      Object.assign(rainRow.style, {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
+      });
+
+      const rainLabel = document.createElement('div');
+      rainLabel.innerHTML = `<div style="font-weight:600;">Rain Background</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Falling rain streaks behind the app (uses theme accent color)</div>`;
+      rainRow.appendChild(rainLabel);
+
+      const rainToggle = document.createElement('div');
+      const rainEnabled = isRainBgEnabled();
+      Object.assign(rainToggle.style, {
+        width: '42px', height: '24px', borderRadius: '12px',
+        background: rainEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
+        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+      });
+
+      const rainKnob = document.createElement('div');
+      Object.assign(rainKnob.style, {
+        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
+        position: 'absolute', top: '3px', left: rainEnabled ? '21px' : '3px', transition: 'left 0.15s'
+      });
+      rainToggle.appendChild(rainKnob);
+
+      rainToggle.addEventListener('click', () => {
+        const newState = !isRainBgEnabled();
+        setRainBgEnabled(newState);
+        rainToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
+        rainKnob.style.left = newState ? '21px' : '3px';
+        // Matrix is turned off when Rain is on — refresh that toggle too.
+        renderPanel();
+      });
+
+      rainRow.appendChild(rainToggle);
+      body.appendChild(rainRow);
 
       // --- Call Timer section ---
       const callDivider = document.createElement('div');
@@ -1639,11 +1695,143 @@
 
   function setMatrixBgEnabled(enabled) {
     localStorage.setItem(MATRIX_BG_KEY, enabled ? 'true' : 'false');
-    if (enabled) startMatrixBg();
-    else {
+    if (enabled) {
+      if (isRainBgEnabled()) setRainBgEnabled(false);
+      startMatrixBg();
+    } else {
       stopMatrixBg();
       // Re-apply active theme so panel colors return to normal.
-      applyTheme(getSavedTheme());
+      if (!isRainBgEnabled()) applyTheme(getSavedTheme());
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // RAIN BACKGROUND PLUGIN
+  // Weather-style falling rain streaks behind Fenrid (same canvas
+  // approach as Matrix). Uses theme accent for drop color.
+  // ---------------------------------------------------------------
+
+  const RAIN_BG_KEY = 'fencord-rain-bg';
+  const RAIN_CANVAS_ID = 'fencord-rain-canvas';
+  const RAIN_STYLE_ID = 'fencord-rain-style';
+
+  let rainRaf = null;
+  let rainResizeHandler = null;
+  let rainDrops = null;
+
+  function isRainBgEnabled() {
+    return localStorage.getItem(RAIN_BG_KEY) === 'true';
+  }
+
+  function getRainColor() {
+    const vars = getActiveThemeVars();
+    return (
+      vars['--accent-vibrant'] ||
+      vars['--primary-action'] ||
+      vars['--matrix-rain'] ||
+      '#7ec8ff'
+    );
+  }
+
+  function stopRainBg() {
+    if (rainRaf != null) {
+      cancelAnimationFrame(rainRaf);
+      rainRaf = null;
+    }
+    if (rainResizeHandler) {
+      window.removeEventListener('resize', rainResizeHandler);
+      rainResizeHandler = null;
+    }
+    rainDrops = null;
+    const canvas = document.getElementById(RAIN_CANVAS_ID);
+    if (canvas) canvas.remove();
+    const style = document.getElementById(RAIN_STYLE_ID);
+    if (style) style.remove();
+  }
+
+  function startRainBg() {
+    stopRainBg();
+
+    const style = document.createElement('style');
+    style.id = RAIN_STYLE_ID;
+    document.head.appendChild(style);
+    updateRainBackdropStyle();
+
+    const canvas = document.createElement('canvas');
+    canvas.id = RAIN_CANVAS_ID;
+    Object.assign(canvas.style, {
+      position: 'fixed',
+      inset: '0',
+      width: '100%',
+      height: '100%',
+      zIndex: '0',
+      pointerEvents: 'none'
+    });
+    document.body.prepend(canvas);
+
+    const ctx = canvas.getContext('2d');
+
+    function spawnDrop(canvasH) {
+      return {
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvasH - canvasH,
+        len: 12 + Math.random() * 18,
+        speed: 6 + Math.random() * 10,
+        thickness: 1 + Math.random() * 1.5,
+        alpha: 0.35 + Math.random() * 0.5
+      };
+    }
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      const count = Math.max(60, Math.floor(canvas.width / 6));
+      rainDrops = Array.from({ length: count }, () => spawnDrop(canvas.height));
+    }
+
+    rainResizeHandler = resize;
+    window.addEventListener('resize', resize);
+    resize();
+
+    function draw() {
+      if (!document.getElementById(RAIN_CANVAS_ID)) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const color = getRainColor();
+      for (let i = 0; i < rainDrops.length; i++) {
+        const d = rainDrops[i];
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = d.alpha;
+        ctx.lineWidth = d.thickness;
+        ctx.beginPath();
+        // Slight diagonal like wind-blown rain
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - d.len * 0.15, d.y + d.len);
+        ctx.stroke();
+
+        d.y += d.speed;
+        d.x -= d.speed * 0.15;
+        if (d.y > canvas.height + 20) {
+          rainDrops[i] = spawnDrop(0);
+          rainDrops[i].y = -20;
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      rainRaf = requestAnimationFrame(draw);
+    }
+
+    rainRaf = requestAnimationFrame(draw);
+  }
+
+  function setRainBgEnabled(enabled) {
+    localStorage.setItem(RAIN_BG_KEY, enabled ? 'true' : 'false');
+    if (enabled) {
+      if (isMatrixBgEnabled()) setMatrixBgEnabled(false);
+      startRainBg();
+    } else {
+      stopRainBg();
+      if (!isMatrixBgEnabled()) applyTheme(getSavedTheme());
     }
   }
 
@@ -1833,7 +2021,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.21';
+  const CURRENT_VERSION = '1.22';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2154,6 +2342,7 @@
     initTimestampFormat();
     if (isImageBlurEnabled()) setImageBlurEnabled(true);
     if (isMatrixBgEnabled()) setMatrixBgEnabled(true);
+    if (isRainBgEnabled()) setRainBgEnabled(true);
     // Call Timer is marked non-working; do not auto-start even if previously enabled.
     // if (isCallTimerEnabled()) setCallTimerEnabled(true);
     createFencordWatermark();
