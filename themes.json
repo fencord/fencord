@@ -28,7 +28,8 @@
       "--interactive-hover": "#ff007f",
       "--hover-overlay": "#ff007f22",
       "--active-overlay": "#ff007f33",
-      "--primary-foreground": "#ffffff"
+      "--primary-foreground": "#ffffff",
+      "--matrix-rain": "#ff007f"
     }
   },
   "catppuccin": {
@@ -56,7 +57,8 @@
       "--interactive-hover": "#89b4fa",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#1e1e2e"
+      "--primary-foreground": "#1e1e2e",
+      "--matrix-rain": "#89b4fa"
     }
   },
   "dracula": {
@@ -84,7 +86,8 @@
       "--interactive-hover": "#bd93f9",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#282a36"
+      "--primary-foreground": "#282a36",
+      "--matrix-rain": "#ff79c6"
     }
   },
   "nord": {
@@ -112,7 +115,8 @@
       "--interactive-hover": "#88c0d0",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#2e3440"
+      "--primary-foreground": "#2e3440",
+      "--matrix-rain": "#81a1c1"
     }
   },
   "gruvbox": {
@@ -140,7 +144,8 @@
       "--interactive-hover": "#fe8019",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#282828"
+      "--primary-foreground": "#282828",
+      "--matrix-rain": "#fabd2f"
     }
   },
   "tokyonight": {
@@ -168,7 +173,8 @@
       "--interactive-hover": "#7aa2f7",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#1a1b26"
+      "--primary-foreground": "#1a1b26",
+      "--matrix-rain": "#bb9af7"
     }
   },
   "vaporwave": {
@@ -196,7 +202,8 @@
       "--interactive-hover": "#ff6ad5",
       "--hover-overlay": "#ff6ad51a",
       "--active-overlay": "#ff6ad526",
-      "--primary-foreground": "#241b2f"
+      "--primary-foreground": "#241b2f",
+      "--matrix-rain": "#8bd3ff"
     }
   },
   "glitchcore": {
@@ -224,7 +231,8 @@
       "--interactive-hover": "#ff00e5",
       "--hover-overlay": "#00fff21a",
       "--active-overlay": "#ff00e526",
-      "--primary-foreground": "#0a0a0f"
+      "--primary-foreground": "#0a0a0f",
+      "--matrix-rain": "#ff00e5"
     }
   },
   "digicore": {
@@ -252,7 +260,8 @@
       "--interactive-hover": "#c77dff",
       "--hover-overlay": "#c77dff1a",
       "--active-overlay": "#c77dff26",
-      "--primary-foreground": "#12101c"
+      "--primary-foreground": "#12101c",
+      "--matrix-rain": "#7dfff0"
     }
   },
   "solarizedlight": {
@@ -280,7 +289,8 @@
       "--interactive-hover": "#268bd2",
       "--hover-overlay": "#00000012",
       "--active-overlay": "#0000001e",
-      "--primary-foreground": "#fdf6e3"
+      "--primary-foreground": "#fdf6e3",
+      "--matrix-rain": "#2aa198"
     }
   },
   "paperwhite": {
@@ -308,7 +318,8 @@
       "--interactive-hover": "#3355ff",
       "--hover-overlay": "#00000010",
       "--active-overlay": "#0000001c",
-      "--primary-foreground": "#ffffff"
+      "--primary-foreground": "#ffffff",
+      "--matrix-rain": "#3355ff"
     }
   },
   "midnightocean": {
@@ -336,7 +347,8 @@
       "--interactive-hover": "#20b2c4",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#031521"
+      "--primary-foreground": "#031521",
+      "--matrix-rain": "#3ee8e2"
     }
   },
   "sunsetpeach": {
@@ -364,7 +376,8 @@
       "--interactive-hover": "#ff9770",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#2b1a1f"
+      "--primary-foreground": "#2b1a1f",
+      "--matrix-rain": "#ffc785"
     }
   },
   "forestmoss": {
@@ -392,7 +405,8 @@
       "--interactive-hover": "#7fbf6b",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#1a2419"
+      "--primary-foreground": "#1a2419",
+      "--matrix-rain": "#b4d97a"
     }
   },
   "pastelcloud": {
@@ -420,7 +434,8 @@
       "--interactive-hover": "#b09aef",
       "--hover-overlay": "#00000010",
       "--active-overlay": "#0000001c",
-      "--primary-foreground": "#ffffff"
+      "--primary-foreground": "#ffffff",
+      "--matrix-rain": "#f6a6c1"
     }
   },
   "bloodmoon": {
@@ -448,7 +463,8 @@
       "--interactive-hover": "#e0393f",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#160707"
+      "--primary-foreground": "#160707",
+      "--matrix-rain": "#ff6b6b"
     }
   },
   "monochrome": {
@@ -476,7 +492,8 @@
       "--interactive-hover": "#d9d9d9",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#141414"
+      "--primary-foreground": "#141414",
+      "--matrix-rain": "#bfbfbf"
     }
   }
 }

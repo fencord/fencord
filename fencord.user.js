@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.14
+// @version      1.15
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -41,7 +41,8 @@
       "--interactive-hover": "#89b4fa",
       "--hover-overlay": "#ffffff0d",
       "--active-overlay": "#ffffff14",
-      "--primary-foreground": "#1e1e2e"
+      "--primary-foreground": "#1e1e2e",
+      "--matrix-rain": "#00ff00"
     }
   };
 
@@ -66,6 +67,7 @@
         '--text-muted': '#6c7086', '--interactive-hover': '#89b4fa',
         '--hover-overlay': '#ffffff0d', '--active-overlay': '#ffffff14',
         '--primary-foreground': '#1e1e2e',
+        '--matrix-rain': '#a6e3a1',
       }
     }
   };
@@ -218,7 +220,8 @@
       '--interactive-hover': accentHex,
       '--hover-overlay': light ? '#0000000d' : '#ffffff0d',
       '--active-overlay': light ? '#00000014' : '#ffffff14',
-      '--primary-foreground': light ? '#ffffff' : bgHex
+      '--primary-foreground': light ? '#ffffff' : bgHex,
+      '--matrix-rain': accentHex
     };
   }
 
@@ -986,7 +989,7 @@
       });
 
       const matrixLabel = document.createElement('div');
-      matrixLabel.innerHTML = `<div style="font-weight:600;">Matrix Background</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Classic green digital rain behind the app</div>`;
+      matrixLabel.innerHTML = `<div style="font-weight:600;">Matrix Background</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Digital rain behind the app — color from theme <code style="font-size:11px;">--matrix-rain</code></div>`;
       matrixRow.appendChild(matrixLabel);
 
       const matrixToggle = document.createElement('div');
@@ -1471,6 +1474,13 @@
     if (style) style.remove();
   }
 
+  function getMatrixRainColor() {
+    const fromTheme = getComputedStyle(document.documentElement)
+      .getPropertyValue('--matrix-rain')
+      .trim();
+    return fromTheme || '#00ff00';
+  }
+
   function startMatrixBg() {
     stopMatrixBg();
 
@@ -1522,7 +1532,7 @@
       if (!document.getElementById(MATRIX_CANVAS_ID)) return;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#0f0';
+      ctx.fillStyle = getMatrixRainColor();
       ctx.font = `${fontSize}px monospace`;
 
       for (let i = 0; i < matrixDrops.length; i++) {
@@ -1735,7 +1745,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.14';
+  const CURRENT_VERSION = '1.15';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
