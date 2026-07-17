@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.13
+// @version      1.14
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -114,14 +114,16 @@
     const theme = getAllThemes()[key];
     if (!theme || key === 'none') {
       styleEl.textContent = '';
-      return;
+    } else {
+      const rules = Object.entries(theme.vars)
+        .map(([k, v]) => `${k}: ${v} !important;`)
+        .join('\n');
+      styleEl.textContent = `:root {\n${rules}\n}`;
     }
 
-    const rules = Object.entries(theme.vars)
-      .map(([k, v]) => `${k}: ${v} !important;`)
-      .join('\n');
-
-    styleEl.textContent = `:root {\n${rules}\n}`;
+    // Keep Matrix translucency on top of theme vars when that plugin is on.
+    const matrixStyle = document.getElementById(MATRIX_STYLE_ID);
+    if (matrixStyle) document.head.appendChild(matrixStyle);
   }
 
   function getSavedTheme() {
@@ -972,6 +974,46 @@
       blurRow.appendChild(blurToggle);
       body.appendChild(blurRow);
 
+      // --- Matrix Background section ---
+      const matrixDivider = document.createElement('div');
+      Object.assign(matrixDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
+      body.appendChild(matrixDivider);
+
+      const matrixRow = document.createElement('div');
+      Object.assign(matrixRow.style, {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
+      });
+
+      const matrixLabel = document.createElement('div');
+      matrixLabel.innerHTML = `<div style="font-weight:600;">Matrix Background</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Classic green digital rain behind the app</div>`;
+      matrixRow.appendChild(matrixLabel);
+
+      const matrixToggle = document.createElement('div');
+      const matrixEnabled = isMatrixBgEnabled();
+      Object.assign(matrixToggle.style, {
+        width: '42px', height: '24px', borderRadius: '12px',
+        background: matrixEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
+        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+      });
+
+      const matrixKnob = document.createElement('div');
+      Object.assign(matrixKnob.style, {
+        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
+        position: 'absolute', top: '3px', left: matrixEnabled ? '21px' : '3px', transition: 'left 0.15s'
+      });
+      matrixToggle.appendChild(matrixKnob);
+
+      matrixToggle.addEventListener('click', () => {
+        const newState = !isMatrixBgEnabled();
+        setMatrixBgEnabled(newState);
+        matrixToggle.style.background = newState ? 'var(--primary-action)' : 'var(--borders-and-separators)';
+        matrixKnob.style.left = newState ? '21px' : '3px';
+      });
+
+      matrixRow.appendChild(matrixToggle);
+      body.appendChild(matrixRow);
+
       // --- Call Timer section ---
       const callDivider = document.createElement('div');
       Object.assign(callDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
@@ -1395,6 +1437,119 @@
   }
 
   // ---------------------------------------------------------------
+  // MATRIX BACKGROUND PLUGIN
+  // Full-screen canvas digital rain behind Fenrid, with translucent
+  // panel backgrounds so the effect shows through.
+  // ---------------------------------------------------------------
+
+  const MATRIX_BG_KEY = 'fencord-matrix-bg';
+  const MATRIX_CANVAS_ID = 'fencord-matrix-canvas';
+  const MATRIX_STYLE_ID = 'fencord-matrix-style';
+  const MATRIX_CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+  let matrixRaf = null;
+  let matrixResizeHandler = null;
+  let matrixDrops = null;
+
+  function isMatrixBgEnabled() {
+    return localStorage.getItem(MATRIX_BG_KEY) === 'true';
+  }
+
+  function stopMatrixBg() {
+    if (matrixRaf != null) {
+      cancelAnimationFrame(matrixRaf);
+      matrixRaf = null;
+    }
+    if (matrixResizeHandler) {
+      window.removeEventListener('resize', matrixResizeHandler);
+      matrixResizeHandler = null;
+    }
+    matrixDrops = null;
+    const canvas = document.getElementById(MATRIX_CANVAS_ID);
+    if (canvas) canvas.remove();
+    const style = document.getElementById(MATRIX_STYLE_ID);
+    if (style) style.remove();
+  }
+
+  function startMatrixBg() {
+    stopMatrixBg();
+
+    const style = document.createElement('style');
+    style.id = MATRIX_STYLE_ID;
+    style.textContent = `
+      html, body {
+        background: #000 !important;
+      }
+      :root {
+        --background: rgba(0, 12, 0, 0.72) !important;
+        --server-sidebar: rgba(0, 14, 0, 0.78) !important;
+        --channel-sidebar: rgba(0, 12, 0, 0.72) !important;
+        --main-chat-area: rgba(0, 10, 0, 0.65) !important;
+        --member-list: rgba(0, 14, 0, 0.78) !important;
+        --popups-and-modals: rgba(6, 18, 6, 0.92) !important;
+      }
+    `;
+    document.head.appendChild(style);
+
+    const canvas = document.createElement('canvas');
+    canvas.id = MATRIX_CANVAS_ID;
+    Object.assign(canvas.style, {
+      position: 'fixed',
+      inset: '0',
+      width: '100%',
+      height: '100%',
+      zIndex: '0',
+      pointerEvents: 'none'
+    });
+    document.body.prepend(canvas);
+
+    const ctx = canvas.getContext('2d');
+    const fontSize = 14;
+    let columns = 0;
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      columns = Math.max(1, Math.floor(canvas.width / fontSize));
+      matrixDrops = new Array(columns).fill(0).map(() => Math.random() * -50);
+    }
+
+    matrixResizeHandler = resize;
+    window.addEventListener('resize', resize);
+    resize();
+
+    function draw() {
+      if (!document.getElementById(MATRIX_CANVAS_ID)) return;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#0f0';
+      ctx.font = `${fontSize}px monospace`;
+
+      for (let i = 0; i < matrixDrops.length; i++) {
+        const x = i * fontSize;
+        const y = matrixDrops[i] * fontSize;
+        ctx.fillText(MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)], x, y);
+        if (y > canvas.height && Math.random() > 0.975) matrixDrops[i] = 0;
+        matrixDrops[i]++;
+      }
+
+      matrixRaf = requestAnimationFrame(draw);
+    }
+
+    matrixRaf = requestAnimationFrame(draw);
+  }
+
+  function setMatrixBgEnabled(enabled) {
+    localStorage.setItem(MATRIX_BG_KEY, enabled ? 'true' : 'false');
+    if (enabled) startMatrixBg();
+    else {
+      stopMatrixBg();
+      // Re-apply active theme so panel colors return to normal.
+      applyTheme(getSavedTheme());
+    }
+  }
+
+  // ---------------------------------------------------------------
   // CALL TIMER PLUGIN
   // Fenrid shows a "Voice Connected" footer (with a Disconnect button)
   // while in a voice channel. We poll for that chrome and inject a
@@ -1580,7 +1735,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.13';
+  const CURRENT_VERSION = '1.14';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -1842,6 +1997,7 @@
     if (getDisplayNameOverride()) setDisplayNameEnabled(true);
     initTimestampFormat();
     if (isImageBlurEnabled()) setImageBlurEnabled(true);
+    if (isMatrixBgEnabled()) setMatrixBgEnabled(true);
     // Call Timer is marked non-working; do not auto-start even if previously enabled.
     // if (isCallTimerEnabled()) setCallTimerEnabled(true);
     createFencordWatermark();
