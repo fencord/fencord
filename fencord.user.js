@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.22
+// @version      1.23
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -187,7 +187,7 @@
   }
 
   function refreshEffectBackdrops() {
-    for (const id of [MATRIX_STYLE_ID, RAIN_STYLE_ID]) {
+    for (const id of [MATRIX_STYLE_ID, RAIN_STYLE_ID, FIRE_STYLE_ID]) {
       const style = document.getElementById(id);
       if (!style) continue;
       fillEffectBackdropStyle(style);
@@ -1170,6 +1170,44 @@
       rainRow.appendChild(rainToggle);
       body.appendChild(rainRow);
 
+      // --- Fire Background section ---
+      const fireDivider = document.createElement('div');
+      Object.assign(fireDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
+      body.appendChild(fireDivider);
+
+      const fireRow = document.createElement('div');
+      Object.assign(fireRow.style, {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)', maxWidth: '420px'
+      });
+
+      const fireLabel = document.createElement('div');
+      fireLabel.innerHTML = `<div style="font-weight:600;">Fire Background</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Rising embers behind the app (uses theme accent / warm colors)</div>`;
+      fireRow.appendChild(fireLabel);
+
+      const fireToggle = document.createElement('div');
+      const fireEnabled = isFireBgEnabled();
+      Object.assign(fireToggle.style, {
+        width: '42px', height: '24px', borderRadius: '12px',
+        background: fireEnabled ? 'var(--primary-action)' : 'var(--borders-and-separators)',
+        position: 'relative', cursor: 'pointer', flexShrink: '0', transition: 'background 0.15s'
+      });
+
+      const fireKnob = document.createElement('div');
+      Object.assign(fireKnob.style, {
+        width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
+        position: 'absolute', top: '3px', left: fireEnabled ? '21px' : '3px', transition: 'left 0.15s'
+      });
+      fireToggle.appendChild(fireKnob);
+
+      fireToggle.addEventListener('click', () => {
+        setFireBgEnabled(!isFireBgEnabled());
+        renderPanel();
+      });
+
+      fireRow.appendChild(fireToggle);
+      body.appendChild(fireRow);
+
       // --- Call Timer section ---
       const callDivider = document.createElement('div');
       Object.assign(callDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
@@ -1697,11 +1735,11 @@
     localStorage.setItem(MATRIX_BG_KEY, enabled ? 'true' : 'false');
     if (enabled) {
       if (isRainBgEnabled()) setRainBgEnabled(false);
+      if (isFireBgEnabled()) setFireBgEnabled(false);
       startMatrixBg();
     } else {
       stopMatrixBg();
-      // Re-apply active theme so panel colors return to normal.
-      if (!isRainBgEnabled()) applyTheme(getSavedTheme());
+      if (!isRainBgEnabled() && !isFireBgEnabled()) applyTheme(getSavedTheme());
     }
   }
 
@@ -1828,10 +1866,158 @@
     localStorage.setItem(RAIN_BG_KEY, enabled ? 'true' : 'false');
     if (enabled) {
       if (isMatrixBgEnabled()) setMatrixBgEnabled(false);
+      if (isFireBgEnabled()) setFireBgEnabled(false);
       startRainBg();
     } else {
       stopRainBg();
-      if (!isMatrixBgEnabled()) applyTheme(getSavedTheme());
+      if (!isMatrixBgEnabled() && !isFireBgEnabled()) applyTheme(getSavedTheme());
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // FIRE BACKGROUND PLUGIN
+  // Rising ember/flame particles behind Fenrid (same canvas approach
+  // as Matrix/Rain). Uses warm theme accents when available.
+  // ---------------------------------------------------------------
+
+  const FIRE_BG_KEY = 'fencord-fire-bg';
+  const FIRE_CANVAS_ID = 'fencord-fire-canvas';
+  const FIRE_STYLE_ID = 'fencord-fire-style';
+
+  let fireRaf = null;
+  let fireResizeHandler = null;
+  let fireParticles = null;
+
+  function isFireBgEnabled() {
+    return localStorage.getItem(FIRE_BG_KEY) === 'true';
+  }
+
+  function getFireColors() {
+    const vars = getActiveThemeVars();
+    const accent =
+      vars['--accent-vibrant'] ||
+      vars['--primary-action'] ||
+      vars['--warning-yellow'] ||
+      '#ff6a00';
+    const tip = vars['--warning-yellow'] || vars['--error-red'] || '#ffe566';
+    const core = vars['--error-red'] || accent || '#ff3b00';
+    return { accent, tip, core };
+  }
+
+  function stopFireBg() {
+    if (fireRaf != null) {
+      cancelAnimationFrame(fireRaf);
+      fireRaf = null;
+    }
+    if (fireResizeHandler) {
+      window.removeEventListener('resize', fireResizeHandler);
+      fireResizeHandler = null;
+    }
+    fireParticles = null;
+    const canvas = document.getElementById(FIRE_CANVAS_ID);
+    if (canvas) canvas.remove();
+    const style = document.getElementById(FIRE_STYLE_ID);
+    if (style) style.remove();
+  }
+
+  function startFireBg() {
+    stopFireBg();
+
+    const style = document.createElement('style');
+    style.id = FIRE_STYLE_ID;
+    document.head.appendChild(style);
+    fillEffectBackdropStyle(style);
+
+    const canvas = document.createElement('canvas');
+    canvas.id = FIRE_CANVAS_ID;
+    Object.assign(canvas.style, {
+      position: 'fixed',
+      inset: '0',
+      width: '100%',
+      height: '100%',
+      zIndex: '0',
+      pointerEvents: 'none'
+    });
+    document.body.prepend(canvas);
+
+    const ctx = canvas.getContext('2d');
+
+    function spawnParticle(fromBottom) {
+      return {
+        x: Math.random() * canvas.width,
+        y: fromBottom ? canvas.height + Math.random() * 40 : Math.random() * canvas.height,
+        r: 2 + Math.random() * 5,
+        vy: -(1.5 + Math.random() * 3.5),
+        vx: (Math.random() - 0.5) * 1.2,
+        life: 1,
+        decay: 0.008 + Math.random() * 0.012,
+        wobble: Math.random() * Math.PI * 2,
+        wobbleSpeed: 0.04 + Math.random() * 0.08
+      };
+    }
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      const count = Math.max(80, Math.floor(canvas.width / 8));
+      fireParticles = Array.from({ length: count }, () => spawnParticle(false));
+    }
+
+    fireResizeHandler = resize;
+    window.addEventListener('resize', resize);
+    resize();
+
+    function draw() {
+      if (!document.getElementById(FIRE_CANVAS_ID)) return;
+
+      // Soft fade so trails look like heat haze
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const colors = getFireColors();
+      ctx.globalCompositeOperation = 'lighter';
+
+      for (let i = 0; i < fireParticles.length; i++) {
+        const p = fireParticles[i];
+        p.wobble += p.wobbleSpeed;
+        p.x += p.vx + Math.sin(p.wobble) * 0.6;
+        p.y += p.vy;
+        p.life -= p.decay;
+        p.r *= 0.995;
+
+        if (p.life <= 0 || p.y < -20) {
+          fireParticles[i] = spawnParticle(true);
+          continue;
+        }
+
+        const t = Math.max(0, Math.min(1, p.life));
+        // Blend core → accent → tip as the ember rises / dies
+        const color = t > 0.66 ? colors.core : t > 0.33 ? colors.accent : colors.tip;
+        ctx.globalAlpha = Math.min(1, t * 0.9);
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(p.x, p.y, Math.max(0.5, p.r), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      fireRaf = requestAnimationFrame(draw);
+    }
+
+    fireRaf = requestAnimationFrame(draw);
+  }
+
+  function setFireBgEnabled(enabled) {
+    localStorage.setItem(FIRE_BG_KEY, enabled ? 'true' : 'false');
+    if (enabled) {
+      if (isMatrixBgEnabled()) setMatrixBgEnabled(false);
+      if (isRainBgEnabled()) setRainBgEnabled(false);
+      startFireBg();
+    } else {
+      stopFireBg();
+      if (!isMatrixBgEnabled() && !isRainBgEnabled()) applyTheme(getSavedTheme());
     }
   }
 
@@ -2021,7 +2207,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.22';
+  const CURRENT_VERSION = '1.23';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2342,7 +2528,8 @@
     initTimestampFormat();
     if (isImageBlurEnabled()) setImageBlurEnabled(true);
     if (isMatrixBgEnabled()) setMatrixBgEnabled(true);
-    if (isRainBgEnabled()) setRainBgEnabled(true);
+    else if (isRainBgEnabled()) setRainBgEnabled(true);
+    else if (isFireBgEnabled()) setFireBgEnabled(true);
     // Call Timer is marked non-working; do not auto-start even if previously enabled.
     // if (isCallTimerEnabled()) setCallTimerEnabled(true);
     createFencordWatermark();
