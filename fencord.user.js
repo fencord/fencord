@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.24
+// @version      1.25
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -760,6 +760,46 @@
       actionsRow.appendChild(makeActionBtn('Copy Template', copyTemplate));
       actionsRow.appendChild(makeActionBtn('Quick 2-Color', () => openQuickThemeUI(renderPanel)));
       body.appendChild(actionsRow);
+
+      // --- Background Effect (Matrix / Rain / Fire) ---
+      const fxDivider = document.createElement('div');
+      Object.assign(fxDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
+      body.appendChild(fxDivider);
+
+      const fxSection = document.createElement('div');
+      Object.assign(fxSection.style, {
+        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)',
+        maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '10px'
+      });
+
+      const fxLabel = document.createElement('div');
+      fxLabel.innerHTML = `<div style="font-weight:600;">Background Effect</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Animated backdrop behind the app (one at a time)</div>`;
+      fxSection.appendChild(fxLabel);
+
+      const fxSelect = document.createElement('select');
+      Object.assign(fxSelect.style, {
+        padding: '8px', borderRadius: '6px',
+        border: '1px solid var(--borders-and-separators)',
+        background: 'var(--popups-and-modals)', color: 'var(--text-primary)', cursor: 'pointer'
+      });
+      [
+        { id: 'none', label: 'None' },
+        { id: 'matrix', label: 'Matrix — digital rain (--matrix-rain)' },
+        { id: 'rain', label: 'Rain — falling streaks (theme accent)' },
+        { id: 'fire', label: 'Fire — rising embers (warm / accent)' }
+      ].forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.id;
+        opt.textContent = o.label;
+        fxSelect.appendChild(opt);
+      });
+      fxSelect.value = getBackgroundEffect();
+      fxSelect.addEventListener('change', () => {
+        setBackgroundEffect(fxSelect.value);
+      });
+      fxSection.appendChild(fxSelect);
+      body.appendChild(fxSection);
+
       body.appendChild(makeCreditNote());
     }
 
@@ -1085,45 +1125,6 @@
 
       blurRow.appendChild(blurToggle);
       body.appendChild(blurRow);
-
-      // --- Background Effect (Matrix / Rain / Fire) ---
-      const fxDivider = document.createElement('div');
-      Object.assign(fxDivider.style, { borderTop: '1px solid var(--borders-and-separators)', margin: '20px 0', maxWidth: '420px' });
-      body.appendChild(fxDivider);
-
-      const fxSection = document.createElement('div');
-      Object.assign(fxSection.style, {
-        padding: '14px 16px', borderRadius: '8px', background: 'var(--secondary-button)',
-        maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '10px'
-      });
-
-      const fxLabel = document.createElement('div');
-      fxLabel.innerHTML = `<div style="font-weight:600;">Background Effect</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Animated backdrop behind the app (one at a time)</div>`;
-      fxSection.appendChild(fxLabel);
-
-      const fxSelect = document.createElement('select');
-      Object.assign(fxSelect.style, {
-        padding: '8px', borderRadius: '6px',
-        border: '1px solid var(--borders-and-separators)',
-        background: 'var(--popups-and-modals)', color: 'var(--text-primary)', cursor: 'pointer'
-      });
-      [
-        { id: 'none', label: 'None' },
-        { id: 'matrix', label: 'Matrix — digital rain (--matrix-rain)' },
-        { id: 'rain', label: 'Rain — falling streaks (theme accent)' },
-        { id: 'fire', label: 'Fire — rising embers (warm / accent)' }
-      ].forEach(o => {
-        const opt = document.createElement('option');
-        opt.value = o.id;
-        opt.textContent = o.label;
-        fxSelect.appendChild(opt);
-      });
-      fxSelect.value = getBackgroundEffect();
-      fxSelect.addEventListener('change', () => {
-        setBackgroundEffect(fxSelect.value);
-      });
-      fxSection.appendChild(fxSelect);
-      body.appendChild(fxSection);
 
       // --- Call Timer section ---
       const callDivider = document.createElement('div');
@@ -2102,7 +2103,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.24';
+  const CURRENT_VERSION = '1.25';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
