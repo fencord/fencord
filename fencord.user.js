@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      2.0
+// @version      1.32
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1164,9 +1164,7 @@
       makePluginCard({
         title: 'Call Timer',
         desc: 'Show how long you\'ve been in the current call',
-        badge: 'NOT WORKING',
         enabled: isCallTimerEnabled(),
-        dimmed: true,
         onToggle: () => {
           const next = !isCallTimerEnabled();
           setCallTimerEnabled(next);
@@ -2244,7 +2242,7 @@
   // live elapsed timer next to the label — no MutationObserver.
   // ---------------------------------------------------------------
 
-  const CALL_TIMER_KEY = 'fencord-call-timer';const CALL_TIMER_KEY = 'fencord-call-timer';
+  const CALL_TIMER_KEY = 'fencord-call-timer';
   const CALL_TIMER_EL_ID = 'fencord-call-timer';
   // Require a few consecutive misses before treating as left, so brief
   // React re-renders don't restart the clock.
@@ -2787,8 +2785,7 @@
     if (isImageBlurEnabled()) setImageBlurEnabled(true);
     if (isSoftTapsEnabled()) setSoftTapsEnabled(true);
     setBackgroundEffect(getBackgroundEffect());
-    // Call Timer is marked non-working; do not auto-start even if previously enabled.
-    // if (isCallTimerEnabled()) setCallTimerEnabled(true);
+    if (isCallTimerEnabled()) setCallTimerEnabled(true);
     createFencordWatermark();
     startUpdateChecker();
   }
