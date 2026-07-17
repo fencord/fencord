@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.4
+// @version      1.5
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1612,22 +1612,26 @@
 
   // ---------------------------------------------------------------
   // CALL TIMER PLUGIN
-  // Detects Fenrid voice-call chrome (mute/deafen/disconnect) and
-  // shows a live elapsed-time overlay while you are in a call.
+  // Detects Fenrid voice-call disconnect chrome and shows a live
+  // elapsed-time overlay while you are in a call.
+  // Poll-only (no MutationObserver) — mounting/removing the overlay
+  // under a subtree observer caused join/leave thrash freezes.
   // ---------------------------------------------------------------
 
   const CALL_TIMER_KEY = 'fencord-call-timer';
   const CALL_TIMER_OVERLAY_ID = 'fencord-call-timer';
+  // Mute/Deafen/Leave are too broad (user bar / server leave). Only
+  // match disconnect-from-call style controls.
   const CALL_BUTTON_TITLES = [
-    'Mute', 'Unmute', 'Deafen', 'Undeafen',
-    'Disconnect', 'Leave', 'Leave Call', 'Disconnect Call'
+    'Disconnect', 'Leave Call', 'Disconnect Call', 'Hang Up', 'End Call'
   ];
+  // Require a few consecutive misses before treating as left, so brief
+  // React re-renders don't restart the clock.
+  const CALL_LEAVE_CONFIRM_POLLS = 3;
 
-  let callTimerObserver = null;
   let callTimerPoll = null;
-  let callTimerTick = null;
   let callJoinedAt = null;
-  let callWasInCall = false;
+  let callMissCount = 0;
 
   function isCallTimerEnabled() {
     return localStorage.getItem(CALL_TIMER_KEY) === 'true';
@@ -1644,7 +1648,7 @@
     const hours = Math.floor(totalSec / 3600);
     const minutes = Math.floor((totalSec % 3600) / 60);
     const seconds = totalSec % 60;
-    const mm = String(minutes).padStart(hours > 0 ? 2 : 1, '0');
+    const mm = String(minutes).padStart(2, '0');
     const ss = String(seconds).padStart(2, '0');
     if (hours > 0) return `${hours}:${mm}:${ss}`;
     return `${minutes}:${ss}`;
@@ -1692,32 +1696,35 @@
   function startCallClock() {
     if (callJoinedAt != null) return;
     callJoinedAt = Date.now();
+    callMissCount = 0;
     updateCallTimerOverlay();
-    if (!callTimerTick) {
-      callTimerTick = setInterval(updateCallTimerOverlay, 1000);
-    }
   }
 
   function stopCallClock() {
     callJoinedAt = null;
-    if (callTimerTick) {
-      clearInterval(callTimerTick);
-      callTimerTick = null;
-    }
+    callMissCount = 0;
     removeCallTimerOverlay();
   }
 
   function tickCallTimer() {
     if (!isCallTimerEnabled()) return;
-    const inCall = isInCall();
-    if (inCall && !callWasInCall) {
-      startCallClock();
-    } else if (!inCall && callWasInCall) {
+
+    if (isInCall()) {
+      callMissCount = 0;
+      if (callJoinedAt == null) startCallClock();
+      else updateCallTimerOverlay();
+      return;
+    }
+
+    if (callJoinedAt == null) return;
+
+    callMissCount += 1;
+    if (callMissCount >= CALL_LEAVE_CONFIRM_POLLS) {
       stopCallClock();
-    } else if (inCall && callJoinedAt != null) {
+    } else {
+      // Keep showing the last elapsed time while we wait to confirm leave.
       updateCallTimerOverlay();
     }
-    callWasInCall = inCall;
   }
 
   function setCallTimerEnabled(enabled) {
@@ -1727,20 +1734,11 @@
       if (!callTimerPoll) {
         callTimerPoll = setInterval(tickCallTimer, 1000);
       }
-      if (!callTimerObserver && document.body) {
-        callTimerObserver = new MutationObserver(() => tickCallTimer());
-        callTimerObserver.observe(document.body, { childList: true, subtree: true });
-      }
     } else {
-      callWasInCall = false;
       stopCallClock();
       if (callTimerPoll) {
         clearInterval(callTimerPoll);
         callTimerPoll = null;
-      }
-      if (callTimerObserver) {
-        callTimerObserver.disconnect();
-        callTimerObserver = null;
       }
     }
   }
@@ -1764,7 +1762,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.4';
+  const CURRENT_VERSION = '1.5';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
