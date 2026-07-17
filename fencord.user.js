@@ -1616,7 +1616,7 @@
   // ---------------------------------------------------------------
 
   const CURRENT_VERSION = '0.6';
-  const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
+  const REPO_RAW_BASE = 'https://cdn.jsdelivr.net/gh/fencord/fencord@main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
   const SCRIPT_UPDATE_URL = `${REPO_RAW_BASE}/fencord.user.js`;
   const REPO_PAGE_URL = 'https://github.com/fencord/fencord';
