@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.35
+// @version      1.36
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -992,22 +992,59 @@
         body.appendChild(banner);
       }
 
-      const notice = document.createElement('div');
-      notice.textContent = 'If a toggle doesn\'t fully undo (e.g. RGB Usernames), refresh the page.';
-      Object.assign(notice.style, {
-        fontSize: '12px',
-        color: 'var(--text-muted)',
+      const noticeRow = document.createElement('div');
+      Object.assign(noticeRow.style, {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
         padding: '0 2px 12px',
         width: '100%',
         boxSizing: 'border-box'
       });
-      body.appendChild(notice);
+
+      const pluginsCompact = isPluginsCompact();
+
+      const notice = document.createElement('div');
+      notice.textContent = pluginsCompact
+        ? 'Compact mode — expand for Soft Tap options, Font, and more.'
+        : 'If a toggle doesn\'t fully undo (e.g. RGB Usernames), refresh the page.';
+      Object.assign(notice.style, {
+        fontSize: '12px',
+        color: 'var(--text-muted)',
+        minWidth: '0',
+        flex: '1',
+        lineHeight: '1.35'
+      });
+      noticeRow.appendChild(notice);
+
+      const compactBtn = document.createElement('div');
+      compactBtn.textContent = pluginsCompact ? 'Expanded' : 'Compact';
+      Object.assign(compactBtn.style, {
+        padding: '6px 10px',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        background: pluginsCompact ? 'var(--primary-action)' : 'var(--secondary-button)',
+        color: pluginsCompact ? 'var(--primary-foreground)' : 'var(--text-primary)',
+        fontSize: '12px',
+        fontWeight: '650',
+        flexShrink: '0',
+        border: '1px solid var(--borders-and-separators)',
+        userSelect: 'none'
+      });
+      compactBtn.title = 'Toggle compact plugin cards (icons + toggles)';
+      compactBtn.addEventListener('click', () => {
+        setPluginsCompact(!isPluginsCompact());
+        renderPanel();
+      });
+      noticeRow.appendChild(compactBtn);
+      body.appendChild(noticeRow);
 
       const pluginGrid = document.createElement('div');
       Object.assign(pluginGrid.style, {
         display: 'grid',
         gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-        gap: '10px',
+        gap: pluginsCompact ? '8px' : '10px',
         width: '100%',
         alignItems: 'stretch'
       });
@@ -1059,38 +1096,62 @@
         return toggle;
       }
 
-      function makePluginCard({ title, desc, badge, enabled, onToggle, dimmed, wide, build }) {
+      function makePluginCard({ icon, title, desc, badge, enabled, onToggle, dimmed, wide, build, forceFull }) {
+        const compact = pluginsCompact && !forceFull;
         const card = document.createElement('div');
         Object.assign(card.style, {
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px',
-          padding: '14px',
+          gap: compact ? '0' : '10px',
+          padding: compact ? '10px 12px' : '14px',
           borderRadius: '10px',
           background: 'var(--secondary-button)',
           border: '1px solid var(--borders-and-separators)',
           minWidth: '0',
           width: '100%',
           boxSizing: 'border-box',
-          minHeight: onToggle && !build ? '92px' : '0',
-          gridColumn: wide ? '1 / -1' : 'auto'
+          minHeight: compact ? '52px' : (onToggle && !build ? '92px' : '0'),
+          justifyContent: compact ? 'center' : 'flex-start',
+          gridColumn: wide && !compact ? '1 / -1' : 'auto'
         });
 
         const head = document.createElement('div');
         Object.assign(head.style, {
           display: 'flex',
-          alignItems: 'flex-start',
+          alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '12px'
+          gap: '10px'
         });
 
         const textWrap = document.createElement('div');
-        Object.assign(textWrap.style, { minWidth: '0', flex: '1' });
+        Object.assign(textWrap.style, {
+          minWidth: '0',
+          flex: '1',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        });
+
+        if (icon) {
+          const iconEl = document.createElement('div');
+          iconEl.textContent = icon;
+          Object.assign(iconEl.style, {
+            fontSize: compact ? '16px' : '15px',
+            lineHeight: '1',
+            flexShrink: '0',
+            width: '22px',
+            textAlign: 'center'
+          });
+          textWrap.appendChild(iconEl);
+        }
+
+        const textCol = document.createElement('div');
+        Object.assign(textCol.style, { minWidth: '0', flex: '1' });
 
         const titleEl = document.createElement('div');
         Object.assign(titleEl.style, {
           fontWeight: '650',
-          fontSize: '14px',
+          fontSize: compact ? '13px' : '14px',
           color: 'var(--text-primary)',
           display: 'flex',
           alignItems: 'center',
@@ -1098,7 +1159,7 @@
           flexWrap: 'wrap'
         });
         titleEl.appendChild(document.createTextNode(title));
-        if (badge) {
+        if (badge && !compact) {
           const badgeEl = document.createElement('span');
           badgeEl.textContent = badge;
           Object.assign(badgeEl.style, {
@@ -1109,9 +1170,9 @@
           });
           titleEl.appendChild(badgeEl);
         }
-        textWrap.appendChild(titleEl);
+        textCol.appendChild(titleEl);
 
-        if (desc) {
+        if (desc && !compact) {
           const descEl = document.createElement('div');
           descEl.textContent = desc;
           Object.assign(descEl.style, {
@@ -1120,16 +1181,17 @@
             marginTop: '4px',
             lineHeight: '1.35'
           });
-          textWrap.appendChild(descEl);
+          textCol.appendChild(descEl);
         }
 
+        textWrap.appendChild(textCol);
         head.appendChild(textWrap);
         if (typeof enabled === 'boolean' && typeof onToggle === 'function') {
           head.appendChild(makeToggle(enabled, onToggle, { dimmed }));
         }
         card.appendChild(head);
 
-        if (typeof build === 'function') {
+        if (!compact && typeof build === 'function') {
           const controls = document.createElement('div');
           Object.assign(controls.style, {
             display: 'flex',
@@ -1147,6 +1209,7 @@
 
       // Toggles first — even 2×2 grid
       makePluginCard({
+        icon: '🌈',
         title: 'RGB Usernames',
         desc: 'Cycle chat usernames through rainbow colors',
         enabled: isRgbEnabled(),
@@ -1158,6 +1221,7 @@
       });
 
       makePluginCard({
+        icon: '🔊',
         title: 'Soft Tap Sounds',
         desc: 'Quiet taps when typing or clicking',
         enabled: isSoftTapsEnabled(),
@@ -1197,10 +1261,27 @@
             setSoftTapTrigger(triggerSelect.value);
           });
           controls.appendChild(triggerSelect);
+
+          const volumeSelect = document.createElement('select');
+          styleField(volumeSelect);
+          volumeSelect.style.cursor = 'pointer';
+          getSoftTapVolumes().forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.id;
+            opt.textContent = v.label;
+            volumeSelect.appendChild(opt);
+          });
+          volumeSelect.value = getSoftTapVolume();
+          volumeSelect.addEventListener('change', () => {
+            setSoftTapVolume(volumeSelect.value);
+            if (isSoftTapsEnabled()) playSoftTap({ kind: 'click' });
+          });
+          controls.appendChild(volumeSelect);
         }
       });
 
       makePluginCard({
+        icon: '🌫️',
         title: 'Blur Images',
         desc: 'Hide images until clicked (spoiler-style)',
         enabled: isImageBlurEnabled(),
@@ -1212,6 +1293,7 @@
       });
 
       makePluginCard({
+        icon: '⏱️',
         title: 'Call Timer',
         desc: 'Show how long you\'ve been in the current call',
         enabled: isCallTimerEnabled(),
@@ -1222,8 +1304,10 @@
         }
       });
 
-      // Settings cards
+      // Settings cards (hidden in compact — toggles-only view)
+      if (!pluginsCompact) {
       makePluginCard({
+        icon: '🔤',
         title: 'Font',
         desc: getSavedFont()
           ? `App-wide font — ${getSavedFont().label}`
@@ -1289,6 +1373,7 @@
       });
 
       makePluginCard({
+        icon: '🕐',
         title: 'Timestamp Format',
         desc: 'How message times are shown',
         build: (controls, styleField) => {
@@ -1313,6 +1398,7 @@
       });
 
       makePluginCard({
+        icon: '✏️',
         title: 'Display Name',
         desc: 'Local only — others still see your real name',
         wide: true,
@@ -1383,6 +1469,8 @@
           }
         }
       });
+
+      }
 
       body.appendChild(pluginGrid);
       body.appendChild(makeCreditNote({ maxWidth: '100%' }));
@@ -1792,6 +1880,8 @@
   const SOFT_TAPS_KEY = 'fencord-soft-taps';
   const SOFT_TAP_STYLE_KEY = 'fencord-soft-tap-style';
   const SOFT_TAP_TRIGGER_KEY = 'fencord-soft-tap-trigger';
+  const SOFT_TAP_VOLUME_KEY = 'fencord-soft-tap-volume';
+  const PLUGINS_COMPACT_KEY = 'fencord-plugins-compact';
 
   const SOFT_TAP_STYLES = [
     { id: 'soft', label: 'Soft — gentle triangle tick' },
@@ -1808,6 +1898,12 @@
     { id: 'clicks', label: 'Clicks only' }
   ];
 
+  const SOFT_TAP_VOLUMES = [
+    { id: 'quiet', label: 'Volume — Quiet', mult: 0.45 },
+    { id: 'normal', label: 'Volume — Normal', mult: 1 },
+    { id: 'loud', label: 'Volume — Loud', mult: 1.7 }
+  ];
+
   let softTapsCtx = null;
   let softTapsKeyHandler = null;
   let softTapsClickHandler = null;
@@ -1815,6 +1911,15 @@
 
   function getSoftTapStyles() { return SOFT_TAP_STYLES; }
   function getSoftTapTriggers() { return SOFT_TAP_TRIGGERS; }
+  function getSoftTapVolumes() { return SOFT_TAP_VOLUMES; }
+
+  function isPluginsCompact() {
+    return localStorage.getItem(PLUGINS_COMPACT_KEY) === 'true';
+  }
+
+  function setPluginsCompact(enabled) {
+    localStorage.setItem(PLUGINS_COMPACT_KEY, enabled ? 'true' : 'false');
+  }
 
   function isSoftTapsEnabled() {
     return localStorage.getItem(SOFT_TAPS_KEY) === 'true';
@@ -1838,6 +1943,21 @@
   function setSoftTapTrigger(id) {
     const next = SOFT_TAP_TRIGGERS.some(t => t.id === id) ? id : 'both';
     localStorage.setItem(SOFT_TAP_TRIGGER_KEY, next);
+  }
+
+  function getSoftTapVolume() {
+    const id = localStorage.getItem(SOFT_TAP_VOLUME_KEY) || 'normal';
+    return SOFT_TAP_VOLUMES.some(v => v.id === id) ? id : 'normal';
+  }
+
+  function setSoftTapVolume(id) {
+    const next = SOFT_TAP_VOLUMES.some(v => v.id === id) ? id : 'normal';
+    localStorage.setItem(SOFT_TAP_VOLUME_KEY, next);
+  }
+
+  function softTapVolumeMult() {
+    const found = SOFT_TAP_VOLUMES.find(v => v.id === getSoftTapVolume());
+    return found ? found.mult : 1;
   }
 
   function ensureSoftTapsAudio() {
@@ -1938,8 +2058,9 @@
     filter.type = 'lowpass';
     filter.frequency.setValueAtTime(profile.filterHz, t0);
 
+    const peak = Math.max(0.0002, profile.peak * softTapVolumeMult());
     gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(profile.peak, t0 + 0.004);
+    gain.gain.exponentialRampToValueAtTime(peak, t0 + 0.004);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + profile.dur);
 
     osc.connect(filter);
@@ -2643,7 +2764,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.35';
+  const CURRENT_VERSION = '1.36';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
