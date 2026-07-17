@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.29
+// @version      1.30
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -119,6 +119,72 @@
     localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(obj));
   }
 
+  // Theme values are injected into a <style> block. Only allow plain colors so
+  // imports can't smuggle url()/(@)import/JS or break out of the declaration.
+  const SAFE_THEME_VAR_NAME = /^--[a-z0-9-]+$/i;
+  const SAFE_HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+  const SAFE_RGB_COLOR = /^rgba?\(\s*(?:(?:\d{1,3}|100%|\d{1,2}%)\s*,\s*){2}(?:\d{1,3}|100%|\d{1,2}%)(?:\s*,\s*(?:0|1|0?\.\d+|100%|\d{1,2}%))?\s*\)$/i;
+  const SAFE_THEME_COLOR_KEYWORDS = new Set(['transparent', 'currentcolor', 'inherit', 'initial', 'unset']);
+
+  function isSafeThemeVarName(name) {
+    return typeof name === 'string' && SAFE_THEME_VAR_NAME.test(name) && name.length <= 64;
+  }
+
+  function isSafeThemeColorValue(value) {
+    if (typeof value !== 'string') return false;
+    const v = value.trim();
+    if (!v || v.length > 64) return false;
+    // Hard reject anything that can fetch, import, execute, or break out of CSS.
+    if (/url\s*\(|@import|expression\s*\(|javascript:|data:|behavior\s*:|-moz-binding|<|>|[{};\\]|\/\*|\*\//i.test(v)) {
+      return false;
+    }
+    if (SAFE_THEME_COLOR_KEYWORDS.has(v.toLowerCase())) return true;
+    if (SAFE_HEX_COLOR.test(v)) return true;
+    if (SAFE_RGB_COLOR.test(v)) return true;
+    return false;
+  }
+
+  function sanitizeThemeVars(vars) {
+    if (!vars || typeof vars !== 'object' || Array.isArray(vars)) {
+      return { ok: false, vars: {}, errors: ['vars must be an object'] };
+    }
+    const clean = {};
+    const errors = [];
+    for (const [key, value] of Object.entries(vars)) {
+      if (!isSafeThemeVarName(key)) {
+        errors.push(`blocked var name: ${key}`);
+        continue;
+      }
+      if (typeof value !== 'string' || !isSafeThemeColorValue(value)) {
+        errors.push(`blocked value for ${key}: ${String(value)}`);
+        continue;
+      }
+      clean[key] = value.trim();
+    }
+    return { ok: errors.length === 0, vars: clean, errors };
+  }
+
+  function sanitizeThemeObject(theme) {
+    if (!theme || typeof theme !== 'object') {
+      return { ok: false, theme: null, errors: ['theme must be an object'] };
+    }
+    if (typeof theme.name !== 'string' || !theme.name.trim() || theme.name.length > 80) {
+      return { ok: false, theme: null, errors: ['theme name must be a short string'] };
+    }
+    if (/[<>]/.test(theme.name)) {
+      return { ok: false, theme: null, errors: ['theme name contains blocked characters'] };
+    }
+    const cleaned = sanitizeThemeVars(theme.vars);
+    if (!cleaned.ok) {
+      return { ok: false, theme: null, errors: cleaned.errors };
+    }
+    return {
+      ok: true,
+      theme: { name: theme.name.trim(), vars: cleaned.vars },
+      errors: []
+    };
+  }
+
   function getAllThemes() {
     return { ...getBuiltInThemes(), ...getCustomThemes() };
   }
@@ -207,11 +273,13 @@
     if (!theme || key === 'none') {
       styleEl.textContent = '';
     } else {
-      const vars = { ...theme.vars };
+      const cleaned = sanitizeThemeVars(theme.vars || {});
+      const vars = { ...cleaned.vars };
       // Older cached themes may lack --matrix-rain; derive from accent.
       if (!vars['--matrix-rain']) {
-        vars['--matrix-rain'] =
+        const fallback =
           vars['--accent-vibrant'] || vars['--primary-action'] || '#00ff00';
+        if (isSafeThemeColorValue(fallback)) vars['--matrix-rain'] = fallback;
       }
       const rules = Object.entries(vars)
         .map(([k, v]) => `${k}: ${v} !important;`)
@@ -249,12 +317,21 @@
       return;
     }
 
-    const key = 'custom_' + parsed.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    const sanitized = sanitizeThemeObject(parsed);
+    if (!sanitized.ok) {
+      alert(
+        'Theme blocked — only safe color values are allowed (hex / rgb / rgba).\n\n' +
+        'Rejected:\n' + sanitized.errors.slice(0, 8).join('\n')
+      );
+      return;
+    }
+
+    const key = 'custom_' + sanitized.theme.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
     const custom = getCustomThemes();
-    custom[key] = { name: parsed.name, vars: parsed.vars };
+    custom[key] = sanitized.theme;
     saveCustomThemes(custom);
 
-    alert(`Imported "${parsed.name}"! Select it from the theme list.`);
+    alert(`Imported "${sanitized.theme.name}"! Select it from the theme list.`);
     rerenderPanel();
   }
 
@@ -368,10 +445,15 @@
       const name = box.querySelector('#fencord-theme-name').value.trim() || 'Quick Theme';
 
       const vars = deriveThemeFromTwoColors(bg, accent);
-      const key = 'custom_' + name.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_' + Date.now();
+      const sanitized = sanitizeThemeObject({ name, vars });
+      if (!sanitized.ok) {
+        alert('Could not save theme — colors failed safety checks.');
+        return;
+      }
+      const key = 'custom_' + sanitized.theme.name.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_' + Date.now();
 
       const custom = getCustomThemes();
-      custom[key] = { name, vars };
+      custom[key] = sanitized.theme;
       saveCustomThemes(custom);
 
       applyTheme(key);
@@ -2283,7 +2365,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '1.29';
+  const CURRENT_VERSION = '1.30';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -2308,6 +2390,10 @@
       if (!theme || typeof theme !== 'object') return false;
       if (typeof theme.name !== 'string') return false;
       if (!theme.vars || typeof theme.vars !== 'object') return false;
+      // Built-in/remote themes must also pass the color-only safety check.
+      const cleaned = sanitizeThemeVars(theme.vars);
+      if (Object.keys(theme.vars).length && !Object.keys(cleaned.vars).length) return false;
+      if (cleaned.errors.length) return false;
     }
     return true;
   }
