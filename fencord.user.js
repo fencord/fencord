@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      2.1.2
+// @version      3.0
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1329,6 +1329,40 @@
           const next = !isUiAnimationsEnabled();
           setUiAnimationsEnabled(next);
           return next;
+        }
+      });
+
+      makePluginCard({
+        icon: '🕵️',
+        title: 'Username Hider',
+        desc: getUsernameHiderMode() === 'off' ? 'Scramble usernames into random characters' : `Hiding: ${getUsernameHiderMode()}`,
+        enabled: getUsernameHiderMode() !== 'off',
+        onToggle: () => {
+          const next = getUsernameHiderMode() === 'off' ? 'both' : 'off';
+          setUsernameHiderMode(next);
+          return next !== 'off';
+        },
+        build: (controls, styleField) => {
+          const modeSelect = document.createElement('select');
+          styleField(modeSelect);
+          modeSelect.style.cursor = 'pointer';
+          [
+            { id: 'off',    label: 'Off — show all usernames normally' },
+            { id: 'mine',   label: 'Mine only — scramble your own name' },
+            { id: 'others', label: 'Others only — scramble everyone else' },
+            { id: 'both',   label: 'Both — scramble all usernames' }
+          ].forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.id;
+            opt.textContent = o.label;
+            modeSelect.appendChild(opt);
+          });
+          modeSelect.value = getUsernameHiderMode();
+          modeSelect.addEventListener('change', () => {
+            setUsernameHiderMode(modeSelect.value);
+            renderPanel();
+          });
+          controls.appendChild(modeSelect);
         }
       });
 
@@ -3249,6 +3283,109 @@
     }, 10000);
   }
 
+  // ---------------------------------------------------------------
+  // USERNAME HIDER PLUGIN
+  // Replaces visible username text with a random alphanumeric string
+  // that re-scrambles every ~1.5 s. Three modes:
+  //   mine   — only scramble the current user’s own name
+  //   others — only scramble everyone else’s names
+  //   both   — scramble all usernames
+  // The scrambled text is a fixed-length string of random chars drawn
+  // from [a-z0-9] so it looks like garbage but stays readable-width.
+  // ---------------------------------------------------------------
+
+  const USERNAME_HIDER_KEY = 'fencord-username-hider-mode';
+  const ALLOWED_HIDER_MODES = new Set(['off', 'mine', 'others', 'both']);
+  let usernameHiderInterval = null;
+  let usernameHiderObserver = null;
+
+  const HIDER_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+  function randomScramble(length) {
+    let out = '';
+    for (let i = 0; i < length; i++) {
+      out += HIDER_CHARS[Math.floor(Math.random() * HIDER_CHARS.length)];
+    }
+    return out;
+  }
+
+  function getUsernameHiderMode() {
+    const v = localStorage.getItem(USERNAME_HIDER_KEY) || 'off';
+    return ALLOWED_HIDER_MODES.has(v) ? v : 'off';
+  }
+
+  function saveUsernameHiderMode(mode) {
+    localStorage.setItem(USERNAME_HIDER_KEY, ALLOWED_HIDER_MODES.has(mode) ? mode : 'off');
+  }
+
+  function tickUsernameHider() {
+    const mode = getUsernameHiderMode();
+    if (mode === 'off') return;
+
+    const myName = getMyRealUsername();
+
+    document.querySelectorAll('span.font-semibold.cursor-pointer').forEach(el => {
+      // Save original text once.
+      if (!el.dataset.fencordHiderOriginal) {
+        el.dataset.fencordHiderOriginal = el.textContent.trim();
+      }
+      const original = el.dataset.fencordHiderOriginal;
+      const isMe = myName && original === myName;
+
+      const shouldHide =
+        mode === 'both' ||
+        (mode === 'mine' && isMe) ||
+        (mode === 'others' && !isMe);
+
+      if (shouldHide) {
+        el.dataset.fencordHiderActive = '1';
+        el.textContent = randomScramble(original.length || 6);
+      } else if (el.dataset.fencordHiderActive === '1') {
+        // This element was previously scrambled but is no longer in scope
+        // (e.g. mode changed to 'mine' and this is someone else).
+        delete el.dataset.fencordHiderActive;
+        el.textContent = original;
+      }
+    });
+  }
+
+  function revertUsernameHider() {
+    document.querySelectorAll('[data-fencord-hider-original]').forEach(el => {
+      el.textContent = el.dataset.fencordHiderOriginal;
+      delete el.dataset.fencordHiderOriginal;
+      delete el.dataset.fencordHiderActive;
+    });
+  }
+
+  function setUsernameHiderMode(mode) {
+    const clean = ALLOWED_HIDER_MODES.has(mode) ? mode : 'off';
+    saveUsernameHiderMode(clean);
+
+    // Always revert first so we start fresh.
+    revertUsernameHider();
+
+    if (clean === 'off') {
+      if (usernameHiderInterval) { clearInterval(usernameHiderInterval); usernameHiderInterval = null; }
+      if (usernameHiderObserver) { usernameHiderObserver.disconnect(); usernameHiderObserver = null; }
+      return;
+    }
+
+    tickUsernameHider();
+
+    if (!usernameHiderInterval) {
+      usernameHiderInterval = setInterval(tickUsernameHider, 1500);
+    }
+    if (!usernameHiderObserver) {
+      usernameHiderObserver = new MutationObserver(() => tickUsernameHider());
+      usernameHiderObserver.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
+  function initUsernameHider() {
+    const mode = getUsernameHiderMode();
+    if (mode !== 'off') setUsernameHiderMode(mode);
+  }
+
   function init() {
     applyTheme(getSavedTheme());
     initFont();
@@ -3264,6 +3401,7 @@
     if (isSoftTapsEnabled()) setSoftTapsEnabled(true);
     setBackgroundEffect(getBackgroundEffect());
     if (isCallTimerEnabled()) setCallTimerEnabled(true);
+    initUsernameHider();
     createFencordWatermark();
     startUpdateChecker();
     showBootDisclaimerToast();
