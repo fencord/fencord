@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      3.1
+// @version      3.2
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -3318,34 +3318,36 @@
   }
 
   function tickUsernameHider() {
-    const mode = getUsernameHiderMode();
-    if (mode === 'off') return;
+    try {
+      const mode = getUsernameHiderMode();
+      if (mode === 'off') return;
 
-    const myName = getMyRealUsername();
+      const myName = getMyRealUsername();
 
-    document.querySelectorAll('span.font-semibold.cursor-pointer').forEach(el => {
-      // Save original text once.
-      if (!el.dataset.fencordHiderOriginal) {
-        el.dataset.fencordHiderOriginal = el.textContent.trim();
-      }
-      const original = el.dataset.fencordHiderOriginal;
-      const isMe = myName && original === myName;
+      document.querySelectorAll('span.font-semibold.cursor-pointer').forEach(el => {
+        // Save original text once.
+        if (!el.dataset.fencordHiderOriginal) {
+          el.dataset.fencordHiderOriginal = el.textContent.trim();
+        }
+        const original = el.dataset.fencordHiderOriginal;
+        const isMe = myName && original === myName;
 
-      const shouldHide =
-        mode === 'both' ||
-        (mode === 'mine' && isMe) ||
-        (mode === 'others' && !isMe);
+        const shouldHide =
+          mode === 'both' ||
+          (mode === 'mine' && isMe) ||
+          (mode === 'others' && !isMe);
 
-      if (shouldHide) {
-        el.dataset.fencordHiderActive = '1';
-        el.textContent = randomScramble(original.length || 6);
-      } else if (el.dataset.fencordHiderActive === '1') {
-        // This element was previously scrambled but is no longer in scope
-        // (e.g. mode changed to 'mine' and this is someone else).
-        delete el.dataset.fencordHiderActive;
-        el.textContent = original;
-      }
-    });
+        if (shouldHide) {
+          el.dataset.fencordHiderActive = '1';
+          el.textContent = randomScramble(original.length || 6);
+        } else if (el.dataset.fencordHiderActive === '1') {
+          // This element was previously scrambled but is no longer in scope
+          // (e.g. mode changed to 'mine' and this is someone else).
+          delete el.dataset.fencordHiderActive;
+          el.textContent = original;
+        }
+      });
+    } catch (e) {}
   }
 
   function revertUsernameHider() {
