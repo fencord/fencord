@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      2.0
+// @version      2.0.1
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -3051,6 +3051,11 @@
       : 'A new version is out. Would you like to update?';
     Object.assign(bodyText.style, { color: 'var(--text-secondary)' });
     banner.appendChild(bodyText);
+
+    const reminderText = document.createElement('div');
+    reminderText.textContent = 'Note: If it says an update is available but you are ALREADY on the new version (e.g. 2.0), you need to completely delete the script and recreate it, not just click update.';
+    Object.assign(reminderText.style, { color: 'var(--warning-yellow)', fontSize: '11px', marginTop: '2px', fontWeight: 'bold' });
+    banner.appendChild(reminderText);
 
     const urlText = document.createElement('div');
     urlText.textContent = SCRIPT_UPDATE_URL;
