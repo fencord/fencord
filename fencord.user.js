@@ -2774,21 +2774,20 @@
         uiAnimationsStyle = document.createElement('style');
         uiAnimationsStyle.id = 'fencord-ui-animations-style';
         uiAnimationsStyle.textContent = `
-          /* Smooth transitions for interactive elements */
-          button, a, input, select, .cursor-pointer {
-            transition: all 0.15s ease-in-out !important;
+          /* Smooth transitions for interactive elements without causing lag */
+          button, a, input, select {
+            transition: background-color 0.15s ease, opacity 0.15s ease, border-color 0.15s ease !important;
           }
           
-          /* Pop-in animation */
+          /* Fast Pop-in animation */
           @keyframes fencordPopIn {
-            from { opacity: 0; transform: scale(0.98) translateY(4px); }
-            to { opacity: 1; transform: scale(1) translateY(0); }
+            0% { opacity: 0; transform: translateY(5px); }
+            100% { opacity: 1; transform: translateY(0); }
           }
           
-          /* Target modals and primary containers */
-          div[role="dialog"], 
-          .flex.flex-col > .flex.gap-4 {
-            animation: fencordPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+          /* Target typical message items and dialogs */
+          li, div[role="dialog"], [data-fencord-original-text] {
+            animation: fencordPopIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
           }
         `;
         document.head.appendChild(uiAnimationsStyle);
