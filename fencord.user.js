@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.38
+// @version      1.39
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -2763,6 +2763,7 @@
 
   const UI_ANIMATIONS_KEY = 'fencord-ui-animations';
   let uiAnimationsStyle = null;
+  let uiAnimationsObserver = null;
 
   function isUiAnimationsEnabled() {
     return localStorage.getItem(UI_ANIMATIONS_KEY) === 'true';
@@ -2774,28 +2775,43 @@
         uiAnimationsStyle = document.createElement('style');
         uiAnimationsStyle.id = 'fencord-ui-animations-style';
         uiAnimationsStyle.textContent = `
-          /* Smooth transitions for interactive elements without causing lag */
           button, a, input, select {
             transition: background-color 0.15s ease, opacity 0.15s ease, border-color 0.15s ease !important;
           }
-          
-          /* Fast Pop-in animation */
           @keyframes fencordPopIn {
-            0% { opacity: 0; transform: translateY(5px); }
-            100% { opacity: 1; transform: translateY(0); }
+            0% { opacity: 0; transform: scale(0.95); }
+            50% { opacity: 1; transform: scale(1.02); }
+            100% { opacity: 1; transform: scale(1); }
           }
-          
-          /* Target typical message items and dialogs */
-          li, div[role="dialog"], [data-fencord-original-text] {
-            animation: fencordPopIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+          .fencord-anim-enter {
+            animation: fencordPopIn 1s ease-in-out forwards !important;
           }
         `;
         document.head.appendChild(uiAnimationsStyle);
+      }
+      
+      if (!uiAnimationsObserver) {
+        uiAnimationsObserver = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            for (const node of m.addedNodes) {
+              if (node.nodeType === 1) {
+                if (node.tagName === 'DIV' || node.tagName === 'LI') {
+                   node.classList.add('fencord-anim-enter');
+                }
+              }
+            }
+          }
+        });
+        uiAnimationsObserver.observe(document.body, { childList: true, subtree: true });
       }
     } else {
       if (uiAnimationsStyle) {
         uiAnimationsStyle.remove();
         uiAnimationsStyle = null;
+      }
+      if (uiAnimationsObserver) {
+        uiAnimationsObserver.disconnect();
+        uiAnimationsObserver = null;
       }
     }
   }
