@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      2.1.0
+// @version      2.1.2
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1039,6 +1039,20 @@
       });
       noticeRow.appendChild(compactBtn);
       body.appendChild(noticeRow);
+
+      const disclaimerRow = document.createElement('div');
+      disclaimerRow.textContent = "Fencord is an unofficial, community-made tool. It is not built by the Fenrid team, but the owner is aware of it and has said it's fine to use. Fenrid is developed and paid for out of pocket by its owner — if you enjoy the platform, please consider supporting the official paid plan when it launches. It directly keeps this running for everyone.";
+      Object.assign(disclaimerRow.style, {
+        fontSize: '11px',
+        color: 'var(--warning-yellow)',
+        background: 'var(--secondary-button)',
+        padding: '8px',
+        borderRadius: '6px',
+        marginBottom: '12px',
+        lineHeight: '1.4',
+        border: '1px solid var(--borders-and-separators)'
+      });
+      body.appendChild(disclaimerRow);
 
       const pluginGrid = document.createElement('div');
       Object.assign(pluginGrid.style, {
@@ -2846,7 +2860,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '2.1.0';
+  const CURRENT_VERSION = '2.1.2';
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -3186,6 +3200,55 @@
 
   }
 
+  function showBootDisclaimerToast() {
+    const banner = document.createElement('div');
+    Object.assign(banner.style, {
+      position: 'fixed',
+      bottom: '20px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      zIndex: '1000003',
+      background: 'var(--popups-and-modals)',
+      color: 'var(--text-primary)',
+      border: '1px solid var(--warning-yellow)',
+      borderRadius: '10px',
+      padding: '14px 18px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '8px',
+      fontSize: '13px',
+      boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+      maxWidth: '450px',
+      lineHeight: '1.4'
+    });
+
+    const headerRow = document.createElement('div');
+    Object.assign(headerRow.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
+
+    const title = document.createElement('div');
+    title.textContent = 'Unofficial Tool';
+    Object.assign(title.style, { fontWeight: 'bold', color: 'var(--warning-yellow)' });
+    
+    const closeBtn = document.createElement('div');
+    closeBtn.textContent = '✕';
+    Object.assign(closeBtn.style, { cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' });
+    closeBtn.onclick = () => banner.remove();
+
+    headerRow.appendChild(title);
+    headerRow.appendChild(closeBtn);
+    banner.appendChild(headerRow);
+
+    const bodyText = document.createElement('div');
+    bodyText.textContent = "Fencord is an unofficial, community-made tool. It is not built by the Fenrid team, but the owner is aware of it and has said it's fine to use. Fenrid is developed and paid for out of pocket by its owner — if you enjoy the platform, please consider supporting the official paid plan when it launches. It directly keeps this running for everyone.";
+    banner.appendChild(bodyText);
+
+    document.body.appendChild(banner);
+
+    setTimeout(() => {
+      if (banner.parentElement) banner.remove();
+    }, 10000);
+  }
+
   function init() {
     applyTheme(getSavedTheme());
     initFont();
@@ -3203,6 +3266,7 @@
     if (isCallTimerEnabled()) setCallTimerEnabled(true);
     createFencordWatermark();
     startUpdateChecker();
+    showBootDisclaimerToast();
   }
 
   if (document.body) {
