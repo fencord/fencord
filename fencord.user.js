@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      3.0
+// @version      3.1
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -3297,7 +3297,6 @@
   const USERNAME_HIDER_KEY = 'fencord-username-hider-mode';
   const ALLOWED_HIDER_MODES = new Set(['off', 'mine', 'others', 'both']);
   let usernameHiderInterval = null;
-  let usernameHiderObserver = null;
 
   const HIDER_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
@@ -3366,7 +3365,6 @@
 
     if (clean === 'off') {
       if (usernameHiderInterval) { clearInterval(usernameHiderInterval); usernameHiderInterval = null; }
-      if (usernameHiderObserver) { usernameHiderObserver.disconnect(); usernameHiderObserver = null; }
       return;
     }
 
@@ -3374,10 +3372,6 @@
 
     if (!usernameHiderInterval) {
       usernameHiderInterval = setInterval(tickUsernameHider, 1500);
-    }
-    if (!usernameHiderObserver) {
-      usernameHiderObserver = new MutationObserver(() => tickUsernameHider());
-      usernameHiderObserver.observe(document.body, { childList: true, subtree: true });
     }
   }
 
