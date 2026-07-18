@@ -1304,6 +1304,18 @@
         }
       });
 
+      makePluginCard({
+        icon: '✨',
+        title: 'UI Animations',
+        desc: 'Add smooth transitions and pop-in animations to the app',
+        enabled: isUiAnimationsEnabled(),
+        onToggle: () => {
+          const next = !isUiAnimationsEnabled();
+          setUiAnimationsEnabled(next);
+          return next;
+        }
+      });
+
       // Settings cards (hidden in compact — toggles-only view)
       if (!pluginsCompact) {
       makePluginCard({
@@ -2743,6 +2755,59 @@
       }
     }
   }
+
+  // ---------------------------------------------------------------
+  // UI ANIMATIONS PLUGIN
+  // Adds smooth transitions and pop-in effects.
+  // ---------------------------------------------------------------
+
+  const UI_ANIMATIONS_KEY = 'fencord-ui-animations';
+  let uiAnimationsStyle = null;
+
+  function isUiAnimationsEnabled() {
+    return localStorage.getItem(UI_ANIMATIONS_KEY) === 'true';
+  }
+
+  function applyUiAnimations() {
+    if (isUiAnimationsEnabled()) {
+      if (!uiAnimationsStyle) {
+        uiAnimationsStyle = document.createElement('style');
+        uiAnimationsStyle.id = 'fencord-ui-animations-style';
+        uiAnimationsStyle.textContent = `
+          /* Smooth transitions for interactive elements */
+          button, a, input, select, .cursor-pointer {
+            transition: all 0.15s ease-in-out !important;
+          }
+          
+          /* Pop-in animation */
+          @keyframes fencordPopIn {
+            from { opacity: 0; transform: scale(0.98) translateY(4px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+          }
+          
+          /* Target modals and primary containers */
+          div[role="dialog"], 
+          .flex.flex-col > .flex.gap-4 {
+            animation: fencordPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+          }
+        `;
+        document.head.appendChild(uiAnimationsStyle);
+      }
+    } else {
+      if (uiAnimationsStyle) {
+        uiAnimationsStyle.remove();
+        uiAnimationsStyle = null;
+      }
+    }
+  }
+
+  function setUiAnimationsEnabled(enabled) {
+    localStorage.setItem(UI_ANIMATIONS_KEY, enabled ? 'true' : 'false');
+    applyUiAnimations();
+  }
+
+  // Init animations on startup
+  applyUiAnimations();
 
 
   // ---------------------------------------------------------------
