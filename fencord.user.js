@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      1.39
+// @version      2.0
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1044,6 +1044,7 @@
       Object.assign(pluginGrid.style, {
         display: 'grid',
         gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        gridAutoRows: pluginsCompact ? 'auto' : '1fr',
         gap: pluginsCompact ? '8px' : '10px',
         width: '100%',
         alignItems: 'stretch'
@@ -1109,6 +1110,7 @@
           border: '1px solid var(--borders-and-separators)',
           minWidth: '0',
           width: '100%',
+          height: '100%',
           boxSizing: 'border-box',
           minHeight: compact ? '52px' : (onToggle && !build ? '92px' : '0'),
           justifyContent: compact ? 'center' : 'flex-start',
