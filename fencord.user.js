@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      3.2
+// @version      3.3
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -1335,34 +1335,12 @@
       makePluginCard({
         icon: '🕵️',
         title: 'Username Hider',
-        desc: getUsernameHiderMode() === 'off' ? 'Scramble usernames into random characters' : `Hiding: ${getUsernameHiderMode()}`,
+        desc: 'Scramble all usernames into random characters',
         enabled: getUsernameHiderMode() !== 'off',
         onToggle: () => {
           const next = getUsernameHiderMode() === 'off' ? 'both' : 'off';
           setUsernameHiderMode(next);
           return next !== 'off';
-        },
-        build: (controls, styleField) => {
-          const modeSelect = document.createElement('select');
-          styleField(modeSelect);
-          modeSelect.style.cursor = 'pointer';
-          [
-            { id: 'off',    label: 'Off — show all usernames normally' },
-            { id: 'mine',   label: 'Mine only — scramble your own name' },
-            { id: 'others', label: 'Others only — scramble everyone else' },
-            { id: 'both',   label: 'Both — scramble all usernames' }
-          ].forEach(o => {
-            const opt = document.createElement('option');
-            opt.value = o.id;
-            opt.textContent = o.label;
-            modeSelect.appendChild(opt);
-          });
-          modeSelect.value = getUsernameHiderMode();
-          modeSelect.addEventListener('change', () => {
-            setUsernameHiderMode(modeSelect.value);
-            renderPanel();
-          });
-          controls.appendChild(modeSelect);
         }
       });
 
