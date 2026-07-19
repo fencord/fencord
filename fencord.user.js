@@ -335,14 +335,34 @@
     rerenderPanel();
   }
 
+  function copyTextFallback(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+
   function exportThemeFlow(theme) {
     const text = JSON.stringify({ name: theme.name, vars: theme.vars }, null, 2);
-    navigator.clipboard.writeText(text).then(() => {
-      alert(`"${theme.name}" copied to clipboard! Use Import Theme to load it elsewhere.`);
-    }).catch(() => {
-      prompt(`Copy the JSON for "${theme.name}" manually:`, text);
-    });
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        alert('"' + theme.name + '" copied to clipboard! Use Import Theme to load it elsewhere.');
+      }).catch(() => {
+        const ok = copyTextFallback(text);
+        prompt(ok ? 'Copied! You can also grab it here:' : 'Copy the JSON manually:', text);
+      });
+    } else {
+      const ok = copyTextFallback(text);
+      prompt(ok ? '"' + theme.name + '" copied! You can also grab it here:' : 'Copy the JSON manually:', text);
+    }
   }
+
 
   function copyTemplate() {
     const text = JSON.stringify(TEMPLATE_THEME, null, 2);
