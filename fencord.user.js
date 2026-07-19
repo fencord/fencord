@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      3.3
+// @version      3.4
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -333,6 +333,15 @@
 
     alert(`Imported "${sanitized.theme.name}"! Select it from the theme list.`);
     rerenderPanel();
+  }
+
+  function exportThemeFlow(theme) {
+    const text = JSON.stringify({ name: theme.name, vars: theme.vars }, null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+      alert(`"${theme.name}" copied to clipboard! Use Import Theme to load it elsewhere.`);
+    }).catch(() => {
+      prompt(`Copy the JSON for "${theme.name}" manually:`, text);
+    });
   }
 
   function copyTemplate() {
@@ -842,18 +851,45 @@
 
         const trailing = document.createElement('div');
         Object.assign(trailing.style, {
-          width: '40px',
           flexShrink: '0',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center'
+          justifyContent: 'center',
+          gap: '4px'
         });
 
         if (key.startsWith('custom_')) {
+          const expBtn = document.createElement('div');
+          expBtn.textContent = '↑';
+          Object.assign(expBtn.style, {
+            width: '32px',
+            textAlign: 'center',
+            padding: '10px 0',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            color: 'var(--text-muted)',
+            fontSize: '14px',
+            fontWeight: '700'
+          });
+          expBtn.title = 'Export theme (copy JSON)';
+          expBtn.addEventListener('mouseenter', () => {
+            expBtn.style.background = 'var(--secondary-button-hover)';
+            expBtn.style.color = 'var(--text-primary)';
+          });
+          expBtn.addEventListener('mouseleave', () => {
+            expBtn.style.background = '';
+            expBtn.style.color = 'var(--text-muted)';
+          });
+          expBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            exportThemeFlow(theme);
+          });
+          trailing.appendChild(expBtn);
+
           const delBtn = document.createElement('div');
           delBtn.textContent = '✕';
           Object.assign(delBtn.style, {
-            width: '100%',
+            width: '32px',
             textAlign: 'center',
             padding: '10px 0',
             borderRadius: '6px',
