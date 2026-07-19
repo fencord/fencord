@@ -1,27 +1,19 @@
 # Fencord Versioning
 
-Fencord uses a simple two-number version format: `MAJOR.MINOR`
+Fencord versions are based on **commit count** — each commit increments the version by 1.
 
 ## Format
 
 ```
-MAJOR.MINOR
+<commit count>
 ```
 
 ## Rules
 
-| Number | When to bump | Examples |
-|--------|-------------|---------|
-| **MAJOR** (first) | New features, new plugins, big changes | `3.0` → `4.0` |
-| **MINOR** (second) | Small fixes, tweaks, text changes, minor adjustments | `3.0` → `3.1` |
-
-## Examples
-
-- Added a new plugin → `3.0` → `4.0`
-- Fixed a bug in an existing plugin → `3.0` → `3.1`
-- Tweaked a description or label → `3.0` → `3.1`
-- Rewrote a whole system → `3.1` → `4.0`
+- Every commit = +1 to the version number
+- No major/minor split — just a single incrementing integer
+- `version.json` contains only the bare number, nothing else
 
 ## Current Version
 
-`3.0`
+`70`
