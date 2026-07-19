@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      3.4
+// @version      68
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -335,32 +335,51 @@
     rerenderPanel();
   }
 
-  function copyTextFallback(text) {
+  function showToast(message, { color = 'var(--success-green)', duration = 3000 } = {}) {
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    Object.assign(toast.style, {
+      position: 'fixed',
+      bottom: '24px',
+      left: '50%',
+      transform: 'translateX(-50%) translateY(12px)',
+      zIndex: '1000010',
+      background: 'var(--popups-and-modals)',
+      color: color,
+      border: '1px solid ' + color,
+      borderRadius: '8px',
+      padding: '10px 18px',
+      fontSize: '13px',
+      fontWeight: '600',
+      boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
+      pointerEvents: 'none',
+      opacity: '0',
+      transition: 'opacity 0.2s ease, transform 0.2s ease',
+      whiteSpace: 'nowrap'
+    });
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => {
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateX(-50%) translateY(0)';
+    });
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(-50%) translateY(12px)';
+      setTimeout(() => toast.remove(), 250);
+    }, duration);
+  }
+
+  function exportThemeFlow(theme) {
+    const text = JSON.stringify({ name: theme.name, vars: theme.vars }, null, 2);
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
     document.body.appendChild(ta);
     ta.focus();
     ta.select();
-    let ok = false;
-    try { ok = document.execCommand('copy'); } catch (e) {}
+    try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
-    return ok;
-  }
-
-  function exportThemeFlow(theme) {
-    const text = JSON.stringify({ name: theme.name, vars: theme.vars }, null, 2);
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        alert('"' + theme.name + '" copied to clipboard! Use Import Theme to load it elsewhere.');
-      }).catch(() => {
-        const ok = copyTextFallback(text);
-        prompt(ok ? 'Copied! You can also grab it here:' : 'Copy the JSON manually:', text);
-      });
-    } else {
-      const ok = copyTextFallback(text);
-      prompt(ok ? '"' + theme.name + '" copied! You can also grab it here:' : 'Copy the JSON manually:', text);
-    }
+    showToast('Exported "' + theme.name + '" — copied to clipboard!');
   }
 
 
@@ -2928,7 +2947,7 @@
   // actually has something newer — never a fake/always-on nag.
   // ---------------------------------------------------------------
 
-  const CURRENT_VERSION = '2.1.2';
+  const CURRENT_VERSION = 68;
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
   const REPO_RAW_BASE = 'https://raw.githubusercontent.com/fencord/fencord/main';
   const VERSION_CHECK_URL = `${REPO_RAW_BASE}/version.json`;
@@ -3043,14 +3062,7 @@
   }
 
   function compareVersions(a, b) {
-    const pa = a.split('.').map(Number);
-    const pb = b.split('.').map(Number);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-      const na = pa[i] || 0, nb = pb[i] || 0;
-      if (na > nb) return 1;
-      if (na < nb) return -1;
-    }
-    return 0;
+    return a - b;
   }
 
   async function checkForUpdate({ force = false } = {}) {
@@ -3062,8 +3074,8 @@
         const res = await fetch(`${VERSION_CHECK_URL}?t=${Date.now()}`, { cache: 'no-store' });
         if (!res.ok) throw new Error('bad response');
         const data = await res.json();
-        const latest = data.version;
-        const available = typeof latest === 'string' && compareVersions(latest, CURRENT_VERSION) > 0;
+        const latest = typeof data === 'number' ? data : Number(data);
+        const available = Number.isFinite(latest) && compareVersions(latest, CURRENT_VERSION) > 0;
         updateCheckResult = { available, latestVersion: latest };
       } catch (e) {
         // Network/repo not set up yet, or offline — fail silently, no nag.
