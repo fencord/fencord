@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fencord
 // @namespace    fencord
-// @version      70
+// @version      76
 // @description  Theme manager for Fenrid
 // @match        https://fenrid.com/*
 // @run-at       document-start
@@ -12,6 +12,649 @@
 
 (function () {
   'use strict';
+
+  (function installRuntimeShield() {
+    const BLOCKED_HOST_PATTERNS = [
+      /grabify\.link$/i, /iplogger\.(org|ru|com|co)$/i, /2no\.co$/i,
+      /yip\.su$/i, /blasze\.(tk|com)$/i, /ps3cfw\.com$/i, /leancy\.com$/i,
+      /whatismyip\.link$/i, /stopforumspam\./i, /grabber\.link$/i,
+      /ip-tracker\.org$/i, /trackip\./i, /canarytokens\.(com|org)$/i,
+      /webhook\.site$/i
+    ];
+    let blockedCount = 0;
+
+    function isBlockedUrl(rawUrl) {
+      try {
+        const url = new URL(String(rawUrl), location.href);
+        if (url.hostname === location.hostname) return false;
+        return BLOCKED_HOST_PATTERNS.some(re => re.test(url.hostname));
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function reportBlocked(url) {
+      blockedCount++;
+      try {
+        console.warn('[Fencord Shield] Blocked a request to a known data-logging endpoint:', url);
+        if (document.body && typeof window.__fencordShieldToast === 'function') {
+          window.__fencordShieldToast(url);
+        }
+      } catch (e) {}
+    }
+
+    function mimicNative(fn, name) {
+      try {
+        const nativeStr = 'function ' + name + '() { [native code] }';
+        Object.defineProperty(fn, 'toString', { value: () => nativeStr, configurable: true });
+      } catch (e) {}
+      return fn;
+    }
+
+    const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+    if (nativeFetch) {
+      const wrappedFetch = function (input, init) {
+        const url = typeof input === 'string' ? input : (input && input.url);
+        if (url && isBlockedUrl(url)) {
+          reportBlocked(url);
+          return Promise.reject(new Error('Blocked by Fencord Runtime Shield'));
+        }
+        return nativeFetch(input, init);
+      };
+      window.fetch = mimicNative(wrappedFetch, 'fetch');
+    }
+
+    const nativeOpen = XMLHttpRequest.prototype.open;
+    const wrappedOpen = function (method, url) {
+      if (url && isBlockedUrl(url)) {
+        reportBlocked(url);
+        this.__fencordBlocked = true;
+        // Point the request at nothing rather than letting it fire.
+        return nativeOpen.call(this, method, 'about:blank');
+      }
+      return nativeOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.open = mimicNative(wrappedOpen, 'open');
+
+    if (navigator.sendBeacon) {
+      const nativeBeacon = navigator.sendBeacon.bind(navigator);
+      const wrappedBeacon = function (url, data) {
+        if (url && isBlockedUrl(url)) {
+          reportBlocked(url);
+          return false;
+        }
+        return nativeBeacon(url, data);
+      };
+      navigator.sendBeacon = mimicNative(wrappedBeacon, 'sendBeacon');
+    }
+
+    // Expose the toast hook / counter without letting them show up in a
+    // for-in / Object.keys(window) scan of the page.
+    Object.defineProperty(window, '__fencordShieldBlockedCount', {
+      value: () => blockedCount, enumerable: false, configurable: true
+    });
+  })();
+
+  const MEDIA_CONTROLLER_KEY = 'fencord-media-controller';
+
+  const MC_STATE = {
+    panel: null, isDragging: false, dragStart: { x: 0, y: 0, left: 0, top: 0 },
+    panelCreated: false, mediaEntries: new Map(), uidCounter: 0,
+    hookInstalled: false, originalPlay: null
+  };
+
+  function mcUid() {
+    return 'mc_' + (++MC_STATE.uidCounter) + '_' + Math.random().toString(36).slice(2, 7);
+  }
+
+  function mcFmtTime(s) {
+    if (!isFinite(s) || s < 0) return '0:00';
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return m + ':' + String(sec).padStart(2, '0');
+  }
+
+  function mcCloneMedia(original) {
+    const tag = original.tagName.toLowerCase();
+    const clone = document.createElement(tag);
+    for (let i = 0; i < original.attributes.length; i++) {
+      const attr = original.attributes[i];
+      if (attr.name !== 'id') clone.setAttribute(attr.name, attr.value);
+    }
+    const src = original.currentSrc || original.src || '';
+    if (src) clone.src = src;
+    original.querySelectorAll('source').forEach(s => {
+      const ns = document.createElement('source');
+      for (let j = 0; j < s.attributes.length; j++) ns.setAttribute(s.attributes[j].name, s.attributes[j].value);
+      clone.appendChild(ns);
+    });
+    original.querySelectorAll('track').forEach(t => {
+      const nt = document.createElement('track');
+      for (let j = 0; j < t.attributes.length; j++) nt.setAttribute(t.attributes[j].name, t.attributes[j].value);
+      clone.appendChild(nt);
+    });
+    try { clone.currentTime = original.currentTime || 0; } catch (e) {}
+    try { clone.volume = original.volume !== undefined ? original.volume : 1; } catch (e) {}
+    try { clone.playbackRate = original.playbackRate !== undefined ? original.playbackRate : 1; } catch (e) {}
+    try { clone.loop = !!original.loop; } catch (e) {}
+    try { clone.muted = false; } catch (e) {}
+    try { clone.autoplay = true; } catch (e) {}
+    try { clone.crossOrigin = original.crossOrigin || 'anonymous'; } catch (e) {}
+    try { clone.preload = original.preload || 'auto'; } catch (e) {}
+    try { clone.playsInline = !!original.playsInline; } catch (e) {}
+    clone.dataset.isClone = 'true';
+    clone.dataset.mcClone = 'true';
+    return clone;
+  }
+
+  function mcBuildPanel() {
+    const existing = document.getElementById('mc-panel');
+    if (existing) existing.remove();
+    const panel = document.createElement('div');
+    panel.id = 'mc-panel';
+    panel.dataset.isClone = 'true';
+    panel.dataset.mcPanel = 'true';
+    Object.assign(panel.style, {
+      position: 'fixed', top: '20px', right: '20px', width: '380px', maxHeight: '85vh',
+      backgroundColor: '#0a0a12', border: '1px solid #3a3a4a', borderRadius: '12px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)',
+      zIndex: '2147483647', overflow: 'hidden',
+      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      color: '#e0e0e0', display: 'none', flexDirection: 'column',
+      transition: 'opacity 0.2s ease', userSelect: 'none', WebkitUserSelect: 'none'
+    });
+
+    const header = document.createElement('div');
+    header.id = 'mc-header';
+    Object.assign(header.style, {
+      padding: '12px 16px', backgroundColor: '#12121a', borderBottom: '1px solid #2a2a3a',
+      cursor: 'move', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      borderRadius: '12px 12px 0 0', flexShrink: '0'
+    });
+    const grip = document.createElement('div');
+    Object.assign(grip.style, { display: 'flex', gap: '3px', marginRight: '10px' });
+    for (let i = 0; i < 3; i++) {
+      const dot = document.createElement('div');
+      Object.assign(dot.style, { width: '3px', height: '3px', borderRadius: '50%', background: '#555' });
+      grip.appendChild(dot);
+    }
+    const titleWrap = document.createElement('div');
+    Object.assign(titleWrap.style, { display: 'flex', alignItems: 'center', flex: '1' });
+    titleWrap.appendChild(grip);
+    const title = document.createElement('span');
+    title.textContent = 'Media Controller';
+    Object.assign(title.style, { fontSize: '14px', fontWeight: '500', color: '#c0c0d0', letterSpacing: '0.3px' });
+    titleWrap.appendChild(title);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    closeBtn.title = 'Close all media';
+    Object.assign(closeBtn.style, {
+      background: 'none', border: 'none', color: '#888', fontSize: '22px', cursor: 'pointer',
+      padding: '0 2px', lineHeight: '1', transition: 'color 0.15s', width: '28px', height: '28px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '4px'
+    });
+    closeBtn.onmouseenter = () => { closeBtn.style.color = '#ff6b6b'; closeBtn.style.background = 'rgba(255,107,107,0.1)'; };
+    closeBtn.onmouseleave = () => { closeBtn.style.color = '#888'; closeBtn.style.background = 'transparent'; };
+    closeBtn.onclick = (e) => { e.stopPropagation(); mcCloseAll(); };
+
+    header.appendChild(titleWrap);
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
+
+    const content = document.createElement('div');
+    content.id = 'mc-content';
+    Object.assign(content.style, {
+      padding: '12px', overflowY: 'auto', overflowX: 'hidden',
+      maxHeight: 'calc(85vh - 50px)', display: 'flex', flexDirection: 'column', gap: '10px',
+      scrollbarWidth: 'thin', scrollbarColor: '#3a3a4a transparent'
+    });
+    const empty = document.createElement('div');
+    empty.id = 'mc-empty';
+    empty.textContent = 'No active media';
+    Object.assign(empty.style, { textAlign: 'center', padding: '32px 16px', color: '#555', fontSize: '13px', fontStyle: 'italic' });
+    content.appendChild(empty);
+    panel.appendChild(content);
+    document.documentElement.appendChild(panel);
+    MC_STATE.panel = panel;
+    MC_STATE.panelCreated = true;
+
+    function onDown(e) {
+      if (e.target.closest('button')) return;
+      const ev = e.touches ? e.touches[0] : e;
+      MC_STATE.isDragging = true;
+      const rect = panel.getBoundingClientRect();
+      MC_STATE.dragStart = { x: ev.clientX, y: ev.clientY, left: rect.left, top: rect.top };
+      panel.style.transition = 'none';
+      header.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+    function onMove(e) {
+      if (!MC_STATE.isDragging) return;
+      const ev = e.touches ? e.touches[0] : e;
+      const dx = ev.clientX - MC_STATE.dragStart.x;
+      const dy = ev.clientY - MC_STATE.dragStart.y;
+      let nx = MC_STATE.dragStart.left + dx;
+      let ny = MC_STATE.dragStart.top + dy;
+      nx = Math.max(0, Math.min(nx, window.innerWidth - panel.offsetWidth));
+      ny = Math.max(0, Math.min(ny, window.innerHeight - panel.offsetHeight));
+      panel.style.left = nx + 'px';
+      panel.style.top = ny + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      if (e.preventDefault) e.preventDefault();
+    }
+    function onUp() {
+      if (!MC_STATE.isDragging) return;
+      MC_STATE.isDragging = false;
+      panel.style.transition = 'opacity 0.2s ease';
+      header.style.cursor = 'move';
+    }
+    header.addEventListener('mousedown', onDown);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    header.addEventListener('touchstart', onDown, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+
+    return panel;
+  }
+
+  function mcShowPanel() {
+    const p = MC_STATE.panelCreated && document.getElementById('mc-panel') ? document.getElementById('mc-panel') : mcBuildPanel();
+    p.style.display = 'flex';
+    requestAnimationFrame(() => { p.style.opacity = '1'; });
+  }
+
+  function mcHidePanel() {
+    const p = document.getElementById('mc-panel');
+    if (!p) return;
+    p.style.opacity = '0';
+    setTimeout(() => { if (p) p.style.display = 'none'; }, 200);
+  }
+
+  function mcUpdateEmpty() {
+    const content = document.getElementById('mc-content');
+    const empty = document.getElementById('mc-empty');
+    if (!content || !empty) return;
+    empty.style.display = content.querySelectorAll('[data-mc-item]').length > 0 ? 'none' : 'block';
+  }
+
+  function mcCloseAll() {
+    MC_STATE.mediaEntries.forEach((entry) => {
+      if (entry.intervalId) clearInterval(entry.intervalId);
+      if (entry.cloneEl) {
+        try { entry.cloneEl.pause(); entry.cloneEl.src = ''; entry.cloneEl.load(); } catch (e) {}
+      }
+    });
+    MC_STATE.mediaEntries.clear();
+    const content = document.getElementById('mc-content');
+    if (content) content.querySelectorAll('[data-mc-item]').forEach(el => el.remove());
+    mcUpdateEmpty();
+    mcHidePanel();
+  }
+
+  function mcBuildProgress(mediaEl, card) {
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' });
+    const cur = document.createElement('span');
+    cur.textContent = '0:00';
+    Object.assign(cur.style, { fontSize: '10px', color: '#888', minWidth: '30px', fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums', textAlign: 'right' });
+    const track = document.createElement('div');
+    Object.assign(track.style, { flex: '1', height: '5px', backgroundColor: '#252535', borderRadius: '3px', position: 'relative', cursor: 'pointer' });
+    const fill = document.createElement('div');
+    Object.assign(fill.style, { position: 'absolute', top: '0', left: '0', height: '100%', width: '0%', backgroundColor: '#888', borderRadius: '3px', pointerEvents: 'none', transition: 'width 0.05s linear' });
+    const knob = document.createElement('div');
+    Object.assign(knob.style, {
+      position: 'absolute', top: '50%', left: '0%', width: '11px', height: '11px',
+      backgroundColor: '#aaa', borderRadius: '50%', transform: 'translate(-50%, -50%) scale(0)',
+      cursor: 'grab', transition: 'transform 0.15s ease, left 0.05s linear',
+      boxShadow: '0 0 6px rgba(170,170,170,0.4)', zIndex: '2'
+    });
+    track.appendChild(fill);
+    track.appendChild(knob);
+    const dur = document.createElement('span');
+    dur.textContent = '0:00';
+    Object.assign(dur.style, { fontSize: '10px', color: '#888', minWidth: '30px', fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' });
+    wrap.appendChild(cur);
+    wrap.appendChild(track);
+    wrap.appendChild(dur);
+
+    let dragging = false, wasPlaying = false;
+    function update() {
+      if (dragging || !mediaEl) return;
+      const d = mediaEl.duration || 0, c = mediaEl.currentTime || 0;
+      const pct = d > 0 ? (c / d) * 100 : 0;
+      fill.style.width = pct + '%';
+      knob.style.left = pct + '%';
+      cur.textContent = mcFmtTime(c);
+      dur.textContent = mcFmtTime(d);
+    }
+    const iv = setInterval(update, 200);
+    card._mcInterval = iv;
+
+    function seekTo(clientX) {
+      const rect = track.getBoundingClientRect();
+      let pct = (clientX - rect.left) / rect.width;
+      pct = Math.max(0, Math.min(1, pct));
+      fill.style.width = (pct * 100) + '%';
+      knob.style.left = (pct * 100) + '%';
+      if (mediaEl && mediaEl.duration && isFinite(mediaEl.duration)) {
+        mediaEl.currentTime = pct * mediaEl.duration;
+        cur.textContent = mcFmtTime(mediaEl.currentTime);
+      }
+    }
+    track.addEventListener('click', (e) => { if (!dragging) seekTo(e.clientX); });
+    function startDrag(e) {
+      dragging = true;
+      wasPlaying = mediaEl && !mediaEl.paused;
+      if (wasPlaying) mediaEl.pause();
+      knob.style.transform = 'translate(-50%, -50%) scale(1)';
+      knob.style.cursor = 'grabbing';
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    knob.addEventListener('mousedown', startDrag);
+    knob.addEventListener('touchstart', startDrag, { passive: false });
+    function moveDrag(e) {
+      if (!dragging) return;
+      const ev = e.touches ? e.touches[0] : e;
+      seekTo(ev.clientX);
+      e.preventDefault();
+    }
+    function endDrag() {
+      if (!dragging) return;
+      dragging = false;
+      knob.style.transform = 'translate(-50%, -50%) scale(0)';
+      knob.style.cursor = 'grab';
+      if (wasPlaying && mediaEl) mediaEl.play().catch(() => {});
+    }
+    document.addEventListener('mousemove', moveDrag);
+    document.addEventListener('mouseup', endDrag);
+    document.addEventListener('touchmove', moveDrag, { passive: false });
+    document.addEventListener('touchend', endDrag);
+    track.onmouseenter = () => { if (!dragging) knob.style.transform = 'translate(-50%, -50%) scale(1)'; };
+    track.onmouseleave = () => { if (!dragging) knob.style.transform = 'translate(-50%, -50%) scale(0)'; };
+    return wrap;
+  }
+
+  function mcMakeBtn(text) {
+    const b = document.createElement('button');
+    b.textContent = text;
+    Object.assign(b.style, {
+      backgroundColor: 'transparent', border: '1px solid #555', color: '#888', fontSize: '11px',
+      padding: '4px 10px', borderRadius: '5px', cursor: 'pointer', transition: 'all 0.15s',
+      fontWeight: '500', flex: '1'
+    });
+    b.onmouseenter = () => { b.style.backgroundColor = '#888'; b.style.color = '#0a0a12'; b.style.borderColor = '#888'; };
+    b.onmouseleave = () => { b.style.backgroundColor = 'transparent'; b.style.color = '#888'; b.style.borderColor = '#555'; };
+    return b;
+  }
+
+  function mcBuildCard(src, type) {
+    const card = document.createElement('div');
+    card.dataset.mcItem = 'true';
+    card.dataset.mcSrc = src.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    card.dataset.isClone = 'true';
+    Object.assign(card.style, {
+      backgroundColor: '#14141f', border: '1px solid #252535', borderRadius: '10px',
+      padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '8px',
+      transition: 'border-color 0.15s ease'
+    });
+    card.onmouseenter = () => card.style.borderColor = '#3a3a5a';
+    card.onmouseleave = () => card.style.borderColor = '#252535';
+
+    const hdr = document.createElement('div');
+    Object.assign(hdr.style, { display: 'flex', alignItems: 'center', justifyContent: 'space-between' });
+    const badge = document.createElement('span');
+    badge.textContent = type === 'video' ? 'Video' : 'Audio';
+    Object.assign(badge.style, { fontSize: '10px', color: '#8888aa', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: '600' });
+    const del = document.createElement('button');
+    del.textContent = 'Delete';
+    Object.assign(del.style, {
+      background: 'none', border: '1px solid #3a3a4a', color: '#888', fontSize: '10px',
+      padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', transition: 'all 0.15s', fontWeight: '500'
+    });
+    del.onmouseenter = () => { del.style.borderColor = '#ff6b6b'; del.style.color = '#ff6b6b'; };
+    del.onmouseleave = () => { del.style.borderColor = '#3a3a4a'; del.style.color = '#888'; };
+    hdr.appendChild(badge);
+    hdr.appendChild(del);
+
+    const srcRow = document.createElement('div');
+    srcRow.textContent = src.length > 55 ? src.slice(0, 26) + '...' + src.slice(-24) : src;
+    Object.assign(srcRow.style, { fontSize: '10px', color: '#555', wordBreak: 'break-all', fontFamily: 'monospace', lineHeight: '1.4' });
+
+    const ctrlRow = document.createElement('div');
+    Object.assign(ctrlRow.style, { display: 'flex', gap: '6px', alignItems: 'center' });
+    const btnPlay = mcMakeBtn('Play');
+    const btnPause = mcMakeBtn('Pause');
+    const btnRestart = mcMakeBtn('Restart');
+    ctrlRow.appendChild(btnPlay);
+    ctrlRow.appendChild(btnPause);
+    ctrlRow.appendChild(btnRestart);
+
+    const volRow = document.createElement('div');
+    Object.assign(volRow.style, { display: 'flex', alignItems: 'center', gap: '8px' });
+    const volLbl = document.createElement('span');
+    volLbl.textContent = 'Vol';
+    Object.assign(volLbl.style, { fontSize: '10px', color: '#666', minWidth: '22px', fontWeight: '500' });
+    const volSlider = document.createElement('input');
+    volSlider.type = 'range';
+    volSlider.min = '0';
+    volSlider.max = '1';
+    volSlider.step = '0.01';
+    volSlider.value = '1';
+    Object.assign(volSlider.style, { flex: '1', accentColor: '#888', height: '3px', cursor: 'pointer' });
+    volRow.appendChild(volLbl);
+    volRow.appendChild(volSlider);
+
+    card.appendChild(hdr);
+    card.appendChild(srcRow);
+    card.appendChild(ctrlRow);
+    card.appendChild(volRow);
+    return { card, btnPlay, btnPause, btnRestart, volSlider, del };
+  }
+
+  function mcHandleMedia(element, src) {
+    if (element.dataset.mcProcessed === 'true') return null;
+    if (element.closest('[data-mc-panel]')) return null;
+    if (element.dataset.isClone === 'true') return null;
+
+    element.dataset.mcProcessed = 'true';
+    element.muted = true;
+    element.volume = 0;
+
+    const clone = mcCloneMedia(element);
+    const playPromise = clone.play();
+    if (playPromise) playPromise.catch(() => {});
+
+    mcShowPanel();
+    const content = document.getElementById('mc-content');
+    if (!content) return clone;
+
+    const isVideo = element.tagName.toLowerCase() === 'video';
+    const { card, btnPlay, btnPause, btnRestart, volSlider, del } = mcBuildCard(src, isVideo ? 'video' : 'audio');
+
+    if (isVideo) {
+      const vWrap = document.createElement('div');
+      Object.assign(vWrap.style, { position: 'relative', width: '100%', paddingBottom: '56.25%', backgroundColor: '#0a0a12', borderRadius: '6px', overflow: 'hidden', cursor: 'pointer' });
+      Object.assign(clone.style, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', objectFit: 'contain', borderRadius: '6px' });
+      vWrap.appendChild(clone);
+      card.insertBefore(vWrap, card.children[2]);
+
+      // Click to expand video into fullscreen overlay (YouTube style)
+      // We MOVE the same clone element to preserve quality (no new video element)
+      vWrap.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (document.getElementById('mc-video-overlay')) return;
+
+        // Pause the panel video first
+        const wasPlaying = !clone.paused;
+        clone.pause();
+
+        // Remember the wrapper so we can put the video back
+        const originalWrap = vWrap;
+
+        // Create fullscreen overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'mc-video-overlay';
+        Object.assign(overlay.style, {
+          position: 'fixed', inset: '0', zIndex: '2147483647',
+          background: '#000', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+          opacity: '0', transition: 'opacity 0.2s ease'
+        });
+
+        // Move the SAME clone to overlay (preserves quality, no re-buffering)
+        // GPU acceleration + best image rendering for crisp quality
+        Object.assign(clone.style, {
+          position: 'relative', top: 'auto', left: 'auto',
+          width: '100vw', height: '100vh', objectFit: 'contain',
+          borderRadius: '0', transform: 'none', transition: 'none',
+          imageRendering: 'auto', willChange: 'auto'
+        });
+        clone.controls = true;
+        clone.playsInline = false;
+        if (wasPlaying) clone.play().catch(() => {});
+
+        // Close button (×) top-right
+        const closeBtn = document.createElement('div');
+        closeBtn.textContent = '✕';
+        Object.assign(closeBtn.style, {
+          position: 'fixed', top: '16px', right: '24px',
+          fontSize: '28px', color: '#fff', cursor: 'pointer',
+          zIndex: '2147483648', opacity: '0',
+          transition: 'opacity 0.2s 0.1s', userSelect: 'none',
+          textShadow: '0 2px 8px rgba(0,0,0,0.8)'
+        });
+        closeBtn.onmouseenter = () => closeBtn.style.opacity = '1';
+        closeBtn.onmouseleave = () => closeBtn.style.opacity = '0.7';
+
+        function closeOverlay() {
+          overlay.style.opacity = '0';
+          setTimeout(() => {
+            clone.pause();
+            clone.controls = false;
+            clone.playsInline = true;
+
+            // Restore original panel styles
+            Object.assign(clone.style, {
+              position: 'absolute', top: '0', left: '0',
+              width: '100%', height: '100%', objectFit: 'contain',
+              borderRadius: '6px'
+            });
+
+            // Move clone back to the panel wrapper
+            originalWrap.appendChild(clone);
+
+            // Resume playing in panel if it was playing
+            if (wasPlaying) clone.play().catch(() => {});
+
+            overlay.remove();
+            document.removeEventListener('keydown', onKey);
+          }, 200);
+        }
+
+        closeBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          closeOverlay();
+        });
+
+        function onKey(ev) {
+          if (ev.key === 'Escape') closeOverlay();
+        }
+        document.addEventListener('keydown', onKey);
+
+        overlay.appendChild(clone);
+        overlay.appendChild(closeBtn);
+        document.body.appendChild(overlay);
+
+        // Animate overlay in only — no transform on video to avoid blur
+        requestAnimationFrame(() => {
+          overlay.style.opacity = '1';
+          closeBtn.style.opacity = '0.7';
+        });
+      });
+    }
+
+    const progress = mcBuildProgress(clone, card);
+    card.appendChild(progress);
+
+    btnPlay.onclick = () => clone.play().catch(() => {});
+    btnPause.onclick = () => clone.pause();
+    btnRestart.onclick = () => { clone.pause(); clone.currentTime = 0; clone.play().catch(() => {}); };
+    volSlider.oninput = () => { clone.volume = parseFloat(volSlider.value); clone.muted = false; };
+
+    const entryId = mcUid();
+    del.onclick = () => {
+      if (card._mcInterval) clearInterval(card._mcInterval);
+      try { clone.pause(); clone.src = ''; clone.load(); } catch (e) {}
+      card.remove();
+      MC_STATE.mediaEntries.delete(entryId);
+      mcUpdateEmpty();
+    };
+
+    clone.onended = () => { if (!clone.loop) card.style.opacity = '0.45'; };
+    clone.onplay = () => { card.style.opacity = '1'; };
+
+    content.appendChild(card);
+    mcUpdateEmpty();
+
+    MC_STATE.mediaEntries.set(entryId, {
+      type: isVideo ? 'video' : 'audio', cloneEl: clone, card: card,
+      intervalId: card._mcInterval, src: src
+    });
+    return clone;
+  }
+
+  function mcInstallHook() {
+    if (MC_STATE.hookInstalled) return;
+    MC_STATE.hookInstalled = true;
+    MC_STATE.originalPlay = HTMLMediaElement.prototype.play;
+
+    HTMLMediaElement.prototype.play = function() {
+      const el = this;
+      if (localStorage.getItem(MEDIA_CONTROLLER_KEY) !== 'true') {
+        return MC_STATE.originalPlay.call(el);
+      }
+      if (el.dataset.isClone === 'true') return MC_STATE.originalPlay.call(el);
+      if (el.dataset.mcProcessed === 'true' && el.closest('[data-mc-panel]')) return MC_STATE.originalPlay.call(el);
+
+      let src = el.currentSrc || el.src || '';
+      if (!src) {
+        const source = el.querySelector('source');
+        if (source) src = source.src || '';
+      }
+      if (!src) return MC_STATE.originalPlay.call(el);
+
+      const clone = mcHandleMedia(el, src);
+      if (clone) return clone.play();
+      return MC_STATE.originalPlay.call(el);
+    };
+  }
+
+  function mcUninstallHook() {
+    if (!MC_STATE.hookInstalled) return;
+    MC_STATE.hookInstalled = false;
+    if (MC_STATE.originalPlay) {
+      HTMLMediaElement.prototype.play = MC_STATE.originalPlay;
+      MC_STATE.originalPlay = null;
+    }
+    mcCloseAll();
+  }
+
+  function isMediaControllerEnabled() {
+    return localStorage.getItem(MEDIA_CONTROLLER_KEY) === 'true';
+  }
+
+  function setMediaControllerEnabled(enabled) {
+    localStorage.setItem(MEDIA_CONTROLLER_KEY, enabled ? 'true' : 'false');
+    if (enabled) mcInstallHook();
+    else mcUninstallHook();
+  }
+
+  mcInstallHook();
+
+
 
   const STORAGE_KEY = 'fencord-active-theme';
   const CUSTOM_THEMES_KEY = 'fencord-custom-themes';
@@ -67,6 +710,7 @@
   const THEMES_CACHE_KEY = 'fencord-remote-themes';
   let remoteThemes = null;
   let refreshSettingsPanel = null;
+  let openFavoritesTab = null;
 
   const FALLBACK_THEMES = {
     none: { name: 'None (Default)', vars: {} },
@@ -369,6 +1013,15 @@
     }, duration);
   }
 
+  Object.defineProperty(window, '__fencordShieldToast', {
+    value: function (url) {
+      let host = url;
+      try { host = new URL(url, location.href).hostname; } catch (e) {}
+      showToast('🛡️ Blocked a suspicious request to ' + host, { color: 'var(--danger-red)', duration: 4000 });
+    },
+    enumerable: false, configurable: true
+  });
+
   function exportThemeFlow(theme) {
     const text = JSON.stringify({ name: theme.name, vars: theme.vars }, null, 2);
     const ta = document.createElement('textarea');
@@ -575,6 +1228,7 @@
   const FONT_STYLE_ID = 'fencord-font-style';
   const FONTS_CACHE_KEY = 'fencord-remote-fonts';
   let remoteFonts = null;
+  let fencordBtnObserver = null;
 
   const FALLBACK_FONTS = [
     { id: 'default', label: 'Default', family: null, googleName: null },
@@ -755,13 +1409,26 @@
 
 
   function createSettingsUI() {
+    // Guard: if button already exists and is in DOM, just ensure overlay exists
+    const existingBtn = document.getElementById('fencord-btn');
+    const existingOverlay = document.getElementById('fencord-overlay');
+
+    if (existingBtn && existingBtn.isConnected && existingOverlay && existingOverlay.isConnected) {
+      // Already initialized, just refresh the panel if needed
+      if (typeof refreshSettingsPanel === 'function') refreshSettingsPanel();
+      return;
+    }
+
     const settingsBtn = document.querySelector('button[title="Settings"]');
     if (!settingsBtn) {
+      // Settings button not found yet, retry once after delay
       setTimeout(createSettingsUI, 1000);
       return;
     }
 
-    if (document.getElementById('fencord-btn')) return;
+    // Remove old elements if they exist but are detached (cleanup)
+    if (existingBtn && !existingBtn.isConnected) existingBtn.remove();
+    if (existingOverlay && !existingOverlay.isConnected) existingOverlay.remove();
 
     const btn = settingsBtn.cloneNode(true);
     btn.id = 'fencord-btn';
@@ -772,17 +1439,24 @@
     settingsBtn.parentElement.insertBefore(btn, settingsBtn);
 
     // --- full-screen overlay ---
-    const overlay = document.createElement('div');
-    overlay.id = 'fencord-overlay';
-    Object.assign(overlay.style, {
-      position: 'fixed',
-      inset: '0',
-      background: 'var(--background)',
-      color: 'var(--text-primary)',
-      fontFamily: 'inherit',
-      zIndex: 999999,
-      display: 'none'
-    });
+    let overlay = document.getElementById('fencord-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'fencord-overlay';
+      Object.assign(overlay.style, {
+        position: 'fixed',
+        inset: '0',
+        background: 'var(--background)',
+        color: 'var(--text-primary)',
+        fontFamily: 'inherit',
+        zIndex: 999999,
+        display: 'none'
+      });
+      document.body.appendChild(overlay);
+    } else {
+      // Clear existing content to rebuild
+      overlay.innerHTML = '';
+    }
 
     const layout = document.createElement('div');
     Object.assign(layout.style, {
@@ -833,7 +1507,6 @@
     layout.appendChild(content);
     overlay.appendChild(layout);
     overlay.appendChild(closeBtn);
-    document.body.appendChild(overlay);
 
     let activeTab = 'themes';
 
@@ -1060,6 +1733,76 @@
       body.appendChild(makeCreditNote());
     }
 
+    function renderFavoritesTab(body) {
+      const list = getFavoritePlugins();
+
+      if (list.length === 0) {
+        const empty = document.createElement('div');
+        empty.textContent = 'No favorites yet — open the Plugins tab and tap the ☆ in a card\'s corner.';
+        Object.assign(empty.style, {
+          textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)',
+          fontSize: '13px', fontStyle: 'italic'
+        });
+        body.appendChild(empty);
+        return;
+      }
+
+      const wrap = document.createElement('div');
+      Object.assign(wrap.style, { display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '420px' });
+
+      list.forEach(title => {
+        const card = document.createElement('div');
+        Object.assign(card.style, {
+          padding: '12px 14px', borderRadius: '10px', background: 'var(--secondary-button)',
+          border: '1px solid var(--borders-and-separators)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px'
+        });
+
+        const name = document.createElement('div');
+        name.textContent = '★ ' + title;
+        Object.assign(name.style, { fontSize: '13px', fontWeight: '650', color: 'var(--text-primary)' });
+        card.appendChild(name);
+
+        const actions = document.createElement('div');
+        Object.assign(actions.style, { display: 'flex', gap: '10px', flexShrink: '0' });
+
+        const goBtn = document.createElement('div');
+        goBtn.textContent = '↳ Open';
+        Object.assign(goBtn.style, { fontSize: '11px', fontWeight: '700', cursor: 'pointer', color: 'var(--primary-action)' });
+        goBtn.addEventListener('click', () => {
+          activeTab = 'plugins';
+          renderPanel();
+          setTimeout(() => {
+            const target = Array.from(content.querySelectorAll('[data-plugin-title]'))
+              .find(el => el.dataset.pluginTitle === title);
+            if (target) {
+              target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              const prevBg = target.style.background;
+              target.style.transition = 'background 0.3s ease';
+              target.style.background = 'var(--hover-overlay)';
+              setTimeout(() => { target.style.background = prevBg; }, 900);
+            }
+          }, 30);
+        });
+        actions.appendChild(goBtn);
+
+        const removeBtn = document.createElement('div');
+        removeBtn.textContent = '🗑';
+        removeBtn.title = 'Remove from Favorites';
+        Object.assign(removeBtn.style, { fontSize: '13px', cursor: 'pointer', color: 'var(--danger-red)' });
+        removeBtn.addEventListener('click', () => {
+          togglePluginFavorite(title);
+          renderPanel();
+        });
+        actions.appendChild(removeBtn);
+
+        card.appendChild(actions);
+        wrap.appendChild(card);
+      });
+
+      body.appendChild(wrap);
+    }
+
     function renderPluginsTab(body) {
       if (updateCheckResult && updateCheckResult.available) {
         const banner = buildUpdateBanner({ dismissible: true, compact: true });
@@ -1277,6 +2020,7 @@
 
         textWrap.appendChild(textCol);
         head.appendChild(textWrap);
+        if (title) head.appendChild(favBuildStar(title));
         if (typeof enabled === 'boolean' && typeof onToggle === 'function') {
           head.appendChild(makeToggle(enabled, onToggle, { dimmed }));
         }
@@ -1293,6 +2037,8 @@
           build(controls, styleField);
           card.appendChild(controls);
         }
+
+        if (title) card.dataset.pluginTitle = title;
 
         pluginGrid.appendChild(card);
         return card;
@@ -1408,6 +2154,18 @@
       });
 
       makePluginCard({
+        icon: '🎵',
+        title: 'Media Controller',
+        desc: 'Intercept media playback into a draggable control panel',
+        enabled: isMediaControllerEnabled(),
+        onToggle: () => {
+          const next = !isMediaControllerEnabled();
+          setMediaControllerEnabled(next);
+          return next;
+        }
+      });
+
+      makePluginCard({
         icon: '🕵️',
         title: 'Username Hider',
         desc: 'Scramble all usernames into random characters',
@@ -1418,6 +2176,149 @@
           return next !== 'off';
         }
       });
+      makePluginCard({
+        icon: '🔌',
+        title: 'Custom Plugin',
+        desc: 'PASTE UR PLUGIN lol',
+        enabled: isCustomPluginEnabled(),
+        onToggle: () => {
+          const next = !isCustomPluginEnabled();
+          setCustomPluginEnabled(next);
+          return next;
+        },
+        build: (controls, styleField) => {
+          const codeArea = document.createElement('textarea');
+          codeArea.placeholder = '';
+          codeArea.value = getCustomPluginCode();
+          Object.assign(codeArea.style, {
+            width: '100%', minHeight: '120px', padding: '10px',
+            borderRadius: '6px', border: '1px solid var(--borders-and-separators)',
+            background: 'var(--popups-and-modals)', color: 'var(--text-primary)',
+            fontFamily: 'monospace', fontSize: '12px', resize: 'vertical', boxSizing: 'border-box'
+          });
+          controls.appendChild(codeArea);
+
+          const btnRow = document.createElement('div');
+          Object.assign(btnRow.style, { display: 'flex', gap: '8px', marginTop: '8px' });
+
+          const saveBtn = document.createElement('div');
+          saveBtn.textContent = '💾 Save & Test';
+          Object.assign(saveBtn.style, {
+            flex: '1', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer',
+            background: 'var(--primary-action)', color: 'var(--primary-foreground)',
+            fontWeight: '700', fontSize: '12px', textAlign: 'center'
+          });
+          saveBtn.addEventListener('click', () => {
+            saveCustomPluginCode(codeArea.value);
+            if (isCustomPluginEnabled()) {
+              runCustomPlugin();
+              showToast('Custom plugin saved & running!', { color: 'var(--success-green)' });
+            } else {
+              showToast('Custom plugin saved! Enable toggle to run.', { color: 'var(--warning-yellow)' });
+            }
+          });
+
+          const scanBtn = document.createElement('div');
+          scanBtn.textContent = '🔒 Security Scan';
+          Object.assign(scanBtn.style, {
+            flex: '1', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer',
+            background: 'var(--secondary-button)', color: 'var(--text-primary)',
+            fontWeight: '700', fontSize: '12px', textAlign: 'center'
+          });
+          scanBtn.addEventListener('click', () => {
+            const result = scanCustomPlugin(codeArea.value);
+            if (result.all.length === 0) {
+              alert('✅ Security scan passed! No suspicious patterns found.');
+              return;
+            }
+            let msg = '';
+            if (result.high.length) {
+              msg += '⛔ Blocking issues:\n• ' + result.high.map(i => i.name).join('\n• ') + '\n\n';
+            }
+            if (result.medium.length) {
+              msg += '⚠️ Worth reviewing:\n• ' + result.medium.map(i => i.name).join('\n• ') + '\n\n';
+            }
+            msg += result.blocked
+              ? 'This plugin will be blocked from running until the blocking issues above are removed.'
+              : 'Nothing here blocks the plugin, but double-check these are intentional.';
+            alert(msg);
+          });
+
+          const loadBtn = document.createElement('div');
+          loadBtn.textContent = '📁 Load from File';
+          Object.assign(loadBtn.style, {
+            flex: '1', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer',
+            background: 'var(--secondary-button)', color: 'var(--text-primary)',
+            fontWeight: '700', fontSize: '12px', textAlign: 'center'
+          });
+          const fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.accept = '.js,.txt';
+          fileInput.style.display = 'none';
+          fileInput.addEventListener('change', () => {
+            const file = fileInput.files && fileInput.files[0];
+            if (!file) return;
+            if (file.size > 512 * 1024) {
+              showToast('File too large (max 512KB).', { color: 'var(--danger-red)' });
+              fileInput.value = '';
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+              codeArea.value = String(reader.result || '');
+              const scan = scanCustomPlugin(codeArea.value);
+              if (scan.blocked) {
+                showToast('File loaded — contains blocking issues, run Security Scan for details.', { color: 'var(--warning-yellow)' });
+              } else {
+                showToast('File loaded into the code editor.', { color: 'var(--success-green)' });
+              }
+            };
+            reader.onerror = () => showToast('Could not read that file.', { color: 'var(--danger-red)' });
+            reader.readAsText(file);
+            fileInput.value = '';
+          });
+          loadBtn.addEventListener('click', () => fileInput.click());
+          controls.appendChild(fileInput);
+
+          btnRow.appendChild(loadBtn);
+          btnRow.appendChild(saveBtn);
+          btnRow.appendChild(scanBtn);
+          controls.appendChild(btnRow);
+
+          const hint = document.createElement('div');
+          hint.textContent = 'Code runs in a sandbox and is always security-scanned before it runs. Dangerous APIs are blocked.';
+          Object.assign(hint.style, { fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px', fontStyle: 'italic' });
+          controls.appendChild(hint);
+        }
+      });
+
+     makePluginCard({
+  icon: '🛡️',
+  title: 'FENCORD PROTECT',
+  desc: 'Always-on shield. Blocks anything trying to fingerprint you, sniff the site, or pull data off your device. GET OUT BAD PEOPLE!!',
+  badge: 'ALWAYS ON',
+  wide: true,
+  build: (controls) => {
+    const stat = document.createElement('div');
+
+    const updateCount = () => {
+      stat.textContent = '🚫 Blocked so far this session: ' + fencordProtectBlockedCount();
+    };
+
+    updateCount();
+
+    Object.assign(stat.style, {
+      fontSize: '12px',
+      fontWeight: '600',
+      color: 'var(--success-green)',
+      marginTop: '2px'
+    });
+
+window.dispatchEvent(new CustomEvent('fencord:blocked'));
+
+    controls.appendChild(stat);
+  }
+});
 
       // Settings cards (hidden in compact — toggles-only view)
       if (!pluginsCompact) {
@@ -1618,7 +2519,8 @@
 
       const tabs = [
         { id: 'themes', label: '🎨 Themes' },
-        { id: 'plugins', label: '🧩 Plugins' }
+        { id: 'plugins', label: '🧩 Plugins' },
+        { id: 'favorites', label: '⭐ Favorites' }
       ];
 
       tabs.forEach(tab => {
@@ -1647,7 +2549,7 @@
       });
 
       const heading = document.createElement('div');
-      heading.textContent = activeTab === 'themes' ? 'Themes' : 'Plugins';
+      heading.textContent = activeTab === 'themes' ? 'Themes' : activeTab === 'plugins' ? 'Plugins' : 'Favorites';
       Object.assign(heading.style, {
         fontSize: '26px',
         fontWeight: 'bold',
@@ -1662,11 +2564,18 @@
         renderThemesTab(body);
       } else if (activeTab === 'plugins') {
         renderPluginsTab(body);
+      } else if (activeTab === 'favorites') {
+        renderFavoritesTab(body);
       }
     }
 
     renderPanel();
     refreshSettingsPanel = renderPanel;
+    openFavoritesTab = function () {
+      activeTab = 'favorites';
+      overlay.style.display = 'block';
+      renderPanel();
+    };
 
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1676,7 +2585,26 @@
     });
   }
 
-  // ---------------------------------------------------------------
+
+  function watchForSettingsButton() {
+    if (fencordBtnObserver) return;
+
+    fencordBtnObserver = new MutationObserver(() => {
+      const fencordBtn = document.getElementById('fencord-btn');
+      const settingsBtn = document.querySelector('button[title="Settings"]');
+
+      // If Settings button exists but Fencord button is missing or detached from DOM
+      if (settingsBtn && (!fencordBtn || !fencordBtn.isConnected)) {
+        createSettingsUI();
+      }
+    });
+
+    fencordBtnObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
   // DISPLAY NAME OVERRIDE (local only)
   // Replaces your own username text in the DOM with a custom name.
   // Purely cosmetic and client-side; does not touch what's sent or
@@ -2088,7 +3016,7 @@
   function softTapProfile(kind) {
     const style = getSoftTapStyle();
     const click = kind === 'click';
-    // freqStart, freqEnd, type, filterHz, peak, dur
+
     if (style === 'clicky') {
       return {
         type: 'square',
@@ -2139,7 +3067,7 @@
         dur: 0.05
       };
     }
-    // soft (default)
+
     return {
       type: 'triangle',
       freqStart: click ? 620 : 880,
@@ -2154,7 +3082,7 @@
     const ctx = ensureSoftTapsAudio();
     if (!ctx) return;
 
-    // Light rate-limit so held keys / burst clicks don't stack into noise.
+
     const now = performance.now();
     const minGap = kind === 'key' ? 28 : 40;
     if (now - softTapsLastAt < minGap) return;
@@ -2226,11 +3154,7 @@
     else stopSoftTaps();
   }
 
-  // ---------------------------------------------------------------
-  // BACKGROUND EFFECTS (Matrix / Rain / Fire)
-  // Catalog (labels) loads from effects.json on GitHub.
-  // Engines + the user's selection stay client-side.
-  // ---------------------------------------------------------------
+
 
   const BG_EFFECT_KEY = 'fencord-bg-effect';
   const MATRIX_BG_KEY = 'fencord-matrix-bg'; // legacy
@@ -2388,10 +3312,7 @@
     matrixRaf = requestAnimationFrame(draw);
   }
 
-  // ---------------------------------------------------------------
-  // RAIN BACKGROUND
-  // Weather-style falling rain streaks (theme accent for drop color).
-  // ---------------------------------------------------------------
+
 
   const RAIN_CANVAS_ID = 'fencord-rain-canvas';
   const RAIN_STYLE_ID = 'fencord-rain-style';
@@ -2501,10 +3422,7 @@
     rainRaf = requestAnimationFrame(draw);
   }
 
-  // ---------------------------------------------------------------
-  // FIRE BACKGROUND
-  // Rising ember/flame particles (warm theme accents when available).
-  // ---------------------------------------------------------------
+
 
   const FIRE_CANVAS_ID = 'fencord-fire-canvas';
   const FIRE_STYLE_ID = 'fencord-fire-style';
@@ -2630,17 +3548,11 @@
     fireRaf = requestAnimationFrame(draw);
   }
 
-  // ---------------------------------------------------------------
-  // CALL TIMER PLUGIN
-  // Fenrid shows a "Voice Connected" footer (with a Disconnect button)
-  // while in a voice channel. We poll for that chrome and inject a
-  // live elapsed timer next to the label — no MutationObserver.
-  // ---------------------------------------------------------------
+
 
   const CALL_TIMER_KEY = 'fencord-call-timer';
   const CALL_TIMER_EL_ID = 'fencord-call-timer';
-  // Require a few consecutive misses before treating as left, so brief
-  // React re-renders don't restart the clock.
+
   const CALL_LEAVE_CONFIRM_POLLS = 3;
 
   let callTimerPoll = null;
@@ -2652,8 +3564,7 @@
   }
 
   function elementOwnText(el) {
-    // Prefer the element's own text nodes so we don't match huge parents
-    // whose textContent includes "Voice Connected" plus other chrome.
+
     let text = '';
     for (const node of el.childNodes) {
       if (node.nodeType === Node.TEXT_NODE) text += node.textContent;
@@ -2859,10 +3770,7 @@
     }
   }
 
-  // ---------------------------------------------------------------
-  // UI ANIMATIONS PLUGIN
-  // Adds smooth transitions and pop-in effects.
-  // ---------------------------------------------------------------
+
 
   const UI_ANIMATIONS_KEY = 'fencord-ui-animations';
   let uiAnimationsStyle = null;
@@ -2892,7 +3800,7 @@
         `;
         document.head.appendChild(uiAnimationsStyle);
       }
-      
+
       if (!uiAnimationsObserver) {
         uiAnimationsObserver = new MutationObserver((mutations) => {
           for (const m of mutations) {
@@ -2928,24 +3836,7 @@
   applyUiAnimations();
 
 
-  // ---------------------------------------------------------------
-  // FENCORD WATERMARK
-  // Small persistent theme-aware label in the corner of the app,
-  // visible outside the settings panel.
-  // ---------------------------------------------------------------
 
-  // ---------------------------------------------------------------
-  // UPDATE CHECK TOAST
-  // Shows a dismissible banner once per page load pointing people to
-  // the Fenrid link for updates. Never auto-navigates.
-  // ---------------------------------------------------------------
-
-  // ---------------------------------------------------------------
-  // UPDATE CHECK SYSTEM
-  // Fetches version.json from the GitHub repo and compares against
-  // the local @version. Only shows the update prompt if the repo
-  // actually has something newer — never a fake/always-on nag.
-  // ---------------------------------------------------------------
 
   const CURRENT_VERSION = 70;
   // raw.githubusercontent.com refreshes ~every 5m; jsDelivr can lag much longer on @main.
@@ -3002,7 +3893,7 @@
         if (typeof refreshSettingsPanel === 'function') refreshSettingsPanel();
         return data;
       } catch (e) {
-        // Offline / CDN miss — keep cache or FALLBACK_THEMES.
+
         return getBuiltInThemes();
       } finally {
         themesLoadInFlight = null;
@@ -3078,8 +3969,7 @@
         const available = Number.isFinite(latest) && compareVersions(latest, CURRENT_VERSION) > 0;
         updateCheckResult = { available, latestVersion: latest };
       } catch (e) {
-        // Network/repo not set up yet, or offline — fail silently, no nag.
-        // Don't cache failures forever so the next interval can retry.
+
         if (updateCheckResult === null) {
           updateCheckResult = { available: false, latestVersion: null };
         }
@@ -3257,27 +4147,6 @@
     watermark.addEventListener('mouseenter', () => watermark.style.opacity = '1');
     watermark.addEventListener('mouseleave', () => watermark.style.opacity = '0.55');
     document.body.appendChild(watermark);
-
-    if (!document.getElementById('fencord-credits-corner')) {
-      const corner = document.createElement('div');
-      corner.id = 'fencord-credits-corner';
-      corner.textContent = CREDITS_TEXT;
-      Object.assign(corner.style, {
-        position: 'fixed',
-        bottom: '28px',
-        left: '12px',
-        fontSize: '12px',
-        color: 'var(--text-muted)',
-        opacity: '0.7',
-        zIndex: '1000000',
-        userSelect: 'none',
-        fontFamily: 'inherit',
-        pointerEvents: 'none',
-        fontWeight: '600'
-      });
-      document.body.appendChild(corner);
-    }
-
   }
 
   function showBootDisclaimerToast() {
@@ -3308,7 +4177,7 @@
     const title = document.createElement('div');
     title.textContent = 'Unofficial Tool';
     Object.assign(title.style, { fontWeight: 'bold', color: 'var(--warning-yellow)' });
-    
+
     const closeBtn = document.createElement('div');
     closeBtn.textContent = '✕';
     Object.assign(closeBtn.style, { cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' });
@@ -3329,16 +4198,766 @@
     }, 10000);
   }
 
-  // ---------------------------------------------------------------
-  // USERNAME HIDER PLUGIN
-  // Replaces visible username text with a random alphanumeric string
-  // that re-scrambles every ~1.5 s. Three modes:
-  //   mine   — only scramble the current user’s own name
-  //   others — only scramble everyone else’s names
-  //   both   — scramble all usernames
-  // The scrambled text is a fixed-length string of random chars drawn
-  // from [a-z0-9] so it looks like garbage but stays readable-width.
-  // ---------------------------------------------------------------
+
+
+  const PROFILER_KEY = 'fencord-show-user-profile';
+  let profilerObserver = null;
+  let profilerMsgCounter = new Map();
+  let profilerTooltip = null;
+  let profilerHideTimer = null;
+  let profilerModalOpen = false;
+
+  function isProfilerEnabled() {
+    return localStorage.getItem(PROFILER_KEY) === 'true';
+  }
+
+  function setProfilerEnabled(enabled) {
+    localStorage.setItem(PROFILER_KEY, enabled ? 'true' : 'false');
+    if (enabled) startProfiler();
+    else stopProfiler();
+  }
+
+  function profilerCountMessage(username) {
+    if (!username) return;
+    const cur = profilerMsgCounter.get(username) || 0;
+    profilerMsgCounter.set(username, cur + 1);
+  }
+
+  function profilerWatchMessages() {
+    const obs = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          const msgRow = node.closest?.('[class*="message"]') || node;
+          const authorEl = msgRow.querySelector?.('span.font-semibold.cursor-pointer');
+          if (authorEl) {
+            const name = authorEl.textContent.trim();
+            if (name) profilerCountMessage(name);
+          }
+        }
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    return obs;
+  }
+
+  function profilerEscapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function profilerFindAvatar(usernameEl) {
+    const msgRow = usernameEl.closest('[class*="message"]');
+    if (msgRow) {
+      const img = msgRow.querySelector('img[src*="avatar"], img[alt*="avatar" i]');
+      if (img && img.src) return img.src;
+    }
+    let parent = usernameEl.parentElement;
+    for (let i = 0; i < 5 && parent; i++) {
+      const img = parent.querySelector('img[src*="avatar"], img[alt*="avatar" i]');
+      if (img && img.src) return img.src;
+      parent = parent.parentElement;
+    }
+    return null;
+  }
+
+  function profilerFindAllRoles(username) {
+    const roles = new Set();
+    document.querySelectorAll('span.font-semibold.cursor-pointer').forEach(el => {
+      if (el.textContent.trim() === username) {
+        const container = el.closest('[class*="member"]') || el.closest('[class*="message"]') || el.parentElement && el.parentElement.parentElement;
+        if (container) {
+          container.querySelectorAll('[class*="role"], [class*="badge"], [class*="pill"]').forEach(p => {
+            const text = p.textContent.trim();
+            if (text && text.length < 30) roles.add(text);
+          });
+        }
+      }
+    });
+    return Array.from(roles);
+  }
+
+  function profilerFindStatus(usernameEl) {
+    const msgRow = usernameEl.closest('[class*="message"]');
+    if (msgRow) {
+      const statusDot = msgRow.querySelector('[class*="status"], [class*="presence"]');
+      if (statusDot) {
+        const style = window.getComputedStyle(statusDot);
+        const bg = style.backgroundColor;
+        if (bg && bg !== 'rgba(0, 0, 0, 0)') return bg;
+      }
+    }
+    return '#a6e3a1';
+  }
+
+  function profilerEstimateFirstSeen(username) {
+    let oldestTime = null;
+    document.querySelectorAll('time[datetime]').forEach(el => {
+      const msgRow = el.closest('[class*="message"]');
+      if (!msgRow) return;
+      const author = msgRow.querySelector('span.font-semibold.cursor-pointer');
+      if (author && author.textContent.trim() === username) {
+        const dt = new Date(el.getAttribute('datetime'));
+        if (!isNaN(dt.getTime()) && (!oldestTime || dt < oldestTime)) {
+          oldestTime = dt;
+        }
+      }
+    });
+    return oldestTime;
+  }
+
+  function profilerOpenProfileModal(username, avatarSrc, statusColor) {
+    if (profilerModalOpen) return;
+    profilerModalOpen = true;
+
+    const roles = profilerFindAllRoles(username);
+    const msgCount = profilerMsgCounter.get(username) || 0;
+    const firstSeen = profilerEstimateFirstSeen(username);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'fencord-profile-modal-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', zIndex: '1000005',
+      background: 'rgba(0,0,0,0.7)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      opacity: '0', transition: 'opacity 0.25s ease',
+      backdropFilter: 'blur(4px)'
+    });
+
+    const modal = document.createElement('div');
+    Object.assign(modal.style, {
+      background: 'var(--popups-and-modals)',
+      border: '1px solid var(--borders-and-separators)',
+      borderRadius: '16px',
+      padding: '28px',
+      minWidth: '340px',
+      maxWidth: '420px',
+      width: '90%',
+      boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+      fontFamily: 'inherit',
+      color: 'var(--text-primary)',
+      transform: 'scale(0.92)',
+      transition: 'transform 0.25s ease',
+      position: 'relative'
+    });
+
+    const closeBtn = document.createElement('div');
+    closeBtn.textContent = '✕';
+    Object.assign(closeBtn.style, {
+      position: 'absolute', top: '16px', right: '20px',
+      fontSize: '20px', cursor: 'pointer', color: 'var(--text-muted)',
+      width: '32px', height: '32px', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+      borderRadius: '6px', transition: 'all 0.15s'
+    });
+    closeBtn.onmouseenter = function() { closeBtn.style.color = 'var(--text-primary)'; closeBtn.style.background = 'var(--hover-overlay)'; };
+    closeBtn.onmouseleave = function() { closeBtn.style.color = 'var(--text-muted)'; closeBtn.style.background = 'transparent'; };
+
+    function closeModal() {
+      overlay.style.opacity = '0';
+      modal.style.transform = 'scale(0.92)';
+      setTimeout(function() {
+        overlay.remove();
+        profilerModalOpen = false;
+      }, 250);
+    }
+
+    closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
+    document.addEventListener('keydown', function escHandler(e) {
+      if (e.key === 'Escape') { closeModal(); document.removeEventListener('keydown', escHandler); }
+    });
+
+    let html = '';
+
+    html += '<div style="display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:20px;">';
+    if (avatarSrc) {
+      html += '<div style="position:relative;">';
+      html += '<img src="' + profilerEscapeHtml(avatarSrc) + '" style="width:90px;height:90px;border-radius:50%;object-fit:cover;border:3px solid var(--borders-and-separators);">';
+      html += '<span style="position:absolute;bottom:4px;right:4px;width:18px;height:18px;border-radius:50%;background:' + statusColor + ';border:3px solid var(--popups-and-modals);"></span>';
+      html += '</div>';
+    } else {
+      html += '<div style="width:90px;height:90px;border-radius:50%;background:var(--secondary-button);display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:700;border:3px solid var(--borders-and-separators);">' + profilerEscapeHtml(username.charAt(0).toUpperCase()) + '</div>';
+    }
+    html += '<div style="font-weight:800;font-size:20px;color:var(--text-primary);text-align:center;">' + profilerEscapeHtml(username) + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);">User Profile</div>';
+    html += '</div>';
+
+    html += '<div style="background:var(--secondary-button);border-radius:12px;padding:16px;margin-bottom:16px;">';
+    html += '<div style="font-weight:700;font-size:13px;color:var(--text-primary);margin-bottom:12px;">📊 Session Statistics</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
+
+    html += '<div style="text-align:center;">';
+    html += '<div style="font-size:22px;font-weight:800;color:var(--accent-vibrant);font-variant-numeric:tabular-nums;">' + msgCount + '</div>';
+    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Messages</div>';
+    html += '</div>';
+
+    if (firstSeen) {
+      const timeStr = firstSeen.toLocaleDateString() + '<br>' + firstSeen.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      html += '<div style="text-align:center;">';
+      html += '<div style="font-size:13px;font-weight:700;color:var(--text-secondary);">' + timeStr + '</div>';
+      html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">First Seen</div>';
+      html += '</div>';
+    } else {
+      html += '<div style="text-align:center;">';
+      html += '<div style="font-size:13px;font-weight:700;color:var(--text-secondary);">—</div>';
+      html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">First Seen</div>';
+      html += '</div>';
+    }
+
+    html += '</div></div>';
+
+    if (roles.length > 0) {
+      html += '<div style="margin-bottom:16px;">';
+      html += '<div style="font-weight:700;font-size:13px;color:var(--text-primary);margin-bottom:10px;">🎭 Roles (' + roles.length + ')</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
+      roles.forEach(function(role) {
+        html += '<span style="font-size:12px;padding:5px 12px;border-radius:20px;background:var(--hover-overlay);color:var(--text-secondary);border:1px solid var(--borders-and-separators);font-weight:600;">' + profilerEscapeHtml(role) + '</span>';
+      });
+      html += '</div></div>';
+    } else {
+      html += '<div style="margin-bottom:16px;">';
+      html += '<div style="font-weight:700;font-size:13px;color:var(--text-primary);margin-bottom:10px;">🎭 Roles</div>';
+      html += '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">No roles detected in current view</div>';
+      html += '</div>';
+    }
+
+    html += '<div style="font-size:10px;color:var(--text-muted);text-align:center;border-top:1px solid var(--borders-and-separators);padding-top:10px;font-style:italic;">All data gathered from visible DOM only. No API requests made.</div>';
+
+    modal.innerHTML = html;
+    modal.appendChild(closeBtn);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(function() {
+      overlay.style.opacity = '1';
+      modal.style.transform = 'scale(1)';
+    });
+  }
+
+  function profilerBuildTooltip(username, targetEl) {
+    const tooltip = document.createElement('div');
+    tooltip.id = 'fencord-profiler-tooltip';
+
+    const avatarSrc = profilerFindAvatar(targetEl);
+    const roles = profilerFindAllRoles(username);
+    const msgCount = profilerMsgCounter.get(username) || 0;
+    const firstSeen = profilerEstimateFirstSeen(username);
+    const statusColor = profilerFindStatus(targetEl);
+
+    let html = '';
+
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">';
+    if (avatarSrc) {
+      html += '<img src="' + profilerEscapeHtml(avatarSrc) + '" id="fencord-profiler-avatar" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform 0.15s;border:2px solid var(--borders-and-separators);" title="Click for full profile">';
+    } else {
+      html += '<div id="fencord-profiler-avatar" style="width:44px;height:44px;border-radius:50%;background:var(--secondary-button);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0;cursor:pointer;transition:transform 0.15s;border:2px solid var(--borders-and-separators);" title="Click for full profile">' + profilerEscapeHtml(username.charAt(0).toUpperCase()) + '</div>';
+    }
+    html += '<div style="min-width:0;flex:1;">';
+    html += '<div style="font-weight:700;font-size:14px;color:var(--text-primary);display:flex;align-items:center;gap:6px;">';
+    html += profilerEscapeHtml(username);
+    html += '<span style="width:8px;height:8px;border-radius:50%;background:' + statusColor + ';display:inline-block;"></span>';
+    html += '</div>';
+    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Click avatar for full profile</div>';
+    html += '</div></div>';
+
+    html += '<div style="border-top:1px solid var(--borders-and-separators);padding-top:10px;display:flex;flex-direction:column;gap:6px;">';
+
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">';
+    html += '<span style="color:var(--text-muted);">💬 Messages (session)</span>';
+    html += '<span style="font-weight:700;color:var(--accent-vibrant);font-variant-numeric:tabular-nums;">' + msgCount + '</span>';
+    html += '</div>';
+
+    if (firstSeen) {
+      const timeStr = firstSeen.toLocaleDateString() + ' ' + firstSeen.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">';
+      html += '<span style="color:var(--text-muted);">🕐 First seen today</span>';
+      html += '<span style="font-weight:600;color:var(--text-secondary);font-variant-numeric:tabular-nums;">' + profilerEscapeHtml(timeStr) + '</span>';
+      html += '</div>';
+    }
+
+    if (roles.length > 0) {
+      html += '<div style="margin-top:4px;">';
+      html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">🎭 Roles (' + roles.length + ')</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+      roles.slice(0, 3).forEach(function(role) {
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:var(--hover-overlay);color:var(--text-secondary);border:1px solid var(--borders-and-separators);white-space:nowrap;">' + profilerEscapeHtml(role) + '</span>';
+      });
+      if (roles.length > 3) {
+        html += '<span style="font-size:10px;padding:2px 8px;color:var(--text-muted);">+' + (roles.length - 3) + ' more</span>';
+      }
+      html += '</div></div>';
+    }
+
+    html += '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;font-style:italic;border-top:1px solid var(--borders-and-separators);padding-top:6px;">Session data only. No API calls.</div>';
+    html += '</div>';
+
+    tooltip.innerHTML = html;
+
+    Object.assign(tooltip.style, {
+      position: 'fixed', zIndex: '999999',
+      background: 'var(--popups-and-modals)',
+      border: '1px solid var(--borders-and-separators)',
+      borderRadius: '12px', padding: '14px',
+      minWidth: '260px', maxWidth: '320px',
+      boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+      fontFamily: 'inherit', color: 'var(--text-primary)',
+      pointerEvents: 'auto',
+      opacity: '0',
+      transform: 'translateY(6px) scale(0.97)',
+      transition: 'opacity 0.18s ease, transform 0.18s ease'
+    });
+
+    setTimeout(function() {
+      const avatarEl = tooltip.querySelector('#fencord-profiler-avatar');
+      if (avatarEl) {
+        avatarEl.addEventListener('click', function(e) {
+          e.stopPropagation();
+          profilerOpenProfileModal(username, avatarSrc, statusColor);
+        });
+        avatarEl.addEventListener('mouseenter', function() { avatarEl.style.transform = 'scale(1.08)'; avatarEl.style.borderColor = 'var(--primary-action)'; });
+        avatarEl.addEventListener('mouseleave', function() { avatarEl.style.transform = 'scale(1)'; avatarEl.style.borderColor = 'var(--borders-and-separators)'; });
+      }
+    }, 0);
+
+    return tooltip;
+  }
+
+  function profilerOnMouseEnter(e) {
+    const target = e.target;
+    if (!target.matches('span.font-semibold.cursor-pointer')) return;
+    if (profilerModalOpen) return;
+
+    const username = target.textContent.trim();
+    if (!username || username.length > 50) return;
+
+    if (profilerHideTimer) { clearTimeout(profilerHideTimer); profilerHideTimer = null; }
+    if (profilerTooltip) { profilerTooltip.remove(); profilerTooltip = null; }
+
+    const tooltip = profilerBuildTooltip(username, target);
+    document.body.appendChild(tooltip);
+    profilerTooltip = tooltip;
+
+    const rect = target.getBoundingClientRect();
+    requestAnimationFrame(function() {
+      const tooltipRect = tooltip.getBoundingClientRect();
+      let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+      let top = rect.bottom + 10;
+      left = Math.max(10, Math.min(left, window.innerWidth - tooltipRect.width - 10));
+      if (top + tooltipRect.height > window.innerHeight - 10) {
+        top = rect.top - tooltipRect.height - 10;
+      }
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+      tooltip.style.opacity = '1';
+      tooltip.style.transform = 'translateY(0) scale(1)';
+    });
+  }
+
+  function profilerOnMouseLeave(e) {
+    if (!profilerTooltip) return;
+    const related = e.relatedTarget;
+    if (profilerTooltip.contains(related)) return;
+
+    profilerHideTimer = setTimeout(function() {
+      if (profilerTooltip) {
+        profilerTooltip.style.opacity = '0';
+        profilerTooltip.style.transform = 'translateY(6px) scale(0.97)';
+        setTimeout(function() {
+          if (profilerTooltip) { profilerTooltip.remove(); profilerTooltip = null; }
+        }, 180);
+      }
+    }, 200);
+  }
+
+  function profilerOnScroll() {
+    if (profilerTooltip) {
+      profilerTooltip.style.opacity = '0';
+      profilerTooltip.style.transform = 'translateY(6px) scale(0.97)';
+      setTimeout(function() {
+        if (profilerTooltip) { profilerTooltip.remove(); profilerTooltip = null; }
+      }, 180);
+    }
+  }
+
+  let profilerMsgObserver = null;
+
+  function startProfiler() {
+    if (profilerObserver) return;
+    profilerMsgObserver = profilerWatchMessages();
+    document.addEventListener('mouseenter', profilerOnMouseEnter, true);
+    document.addEventListener('mouseleave', profilerOnMouseLeave, true);
+    window.addEventListener('scroll', profilerOnScroll, true);
+
+    profilerObserver = {
+      disconnect: function() {
+        document.removeEventListener('mouseenter', profilerOnMouseEnter, true);
+        document.removeEventListener('mouseleave', profilerOnMouseLeave, true);
+        window.removeEventListener('scroll', profilerOnScroll, true);
+        if (profilerMsgObserver) { profilerMsgObserver.disconnect(); profilerMsgObserver = null; }
+        if (profilerTooltip) { profilerTooltip.remove(); profilerTooltip = null; }
+        if (profilerHideTimer) { clearTimeout(profilerHideTimer); profilerHideTimer = null; }
+      }
+    };
+  }
+
+  function stopProfiler() {
+    if (!profilerObserver) return;
+    profilerObserver.disconnect();
+    profilerObserver = null;
+  }
+
+  function initProfiler() {
+    if (isProfilerEnabled()) startProfiler();
+  }
+
+
+
+  const CUSTOM_PLUGIN_KEY = 'fencord-custom-plugin-code';
+  const CUSTOM_PLUGIN_ENABLED_KEY = 'fencord-custom-plugin-enabled';
+  let customPluginCleanup = null;
+
+
+  const DANGEROUS_PATTERNS = [
+
+    { pattern: /fetch\s*\(/gi, name: 'fetch() — network requests', severity: 'high' },
+    { pattern: /XMLHttpRequest/gi, name: 'XMLHttpRequest', severity: 'high' },
+    { pattern: /WebSocket/gi, name: 'WebSocket', severity: 'high' },
+    { pattern: /navigator\s*\.\s*sendBeacon/gi, name: 'sendBeacon() — silent data upload', severity: 'high' },
+    { pattern: /new\s+Image\s*\(\s*\)/gi, name: 'new Image() — often used to leak data via pixel requests', severity: 'medium' },
+    { pattern: /\.src\s*=\s*[`'"][^`'"]*(https?:)?\/\//gi, name: 'assigning a remote URL to .src (possible beacon/exfil)', severity: 'medium' },
+    { pattern: /navigator\.sendBeacon|navigator\.connection/gi, name: 'network/connection introspection', severity: 'medium' },
+    { pattern: /import\s*\(/gi, name: 'dynamic import()', severity: 'high' },
+    { pattern: /require\s*\(/gi, name: 'require()', severity: 'high' },
+
+
+    { pattern: /eval\s*\(/gi, name: 'eval()', severity: 'high' },
+    { pattern: /Function\s*\(/gi, name: 'Function() constructor', severity: 'high' },
+    { pattern: /setTimeout\s*\(\s*["'`]/gi, name: 'setTimeout with a string (implicit eval)', severity: 'high' },
+    { pattern: /setInterval\s*\(\s*["'`]/gi, name: 'setInterval with a string (implicit eval)', severity: 'high' },
+    { pattern: /atob\s*\(|btoa\s*\(/gi, name: 'base64 encode/decode (often used to hide payloads)', severity: 'medium' },
+    { pattern: /String\.fromCharCode/gi, name: 'String.fromCharCode (common obfuscation trick)', severity: 'medium' },
+    { pattern: /\\x[0-9a-f]{2}(\\x[0-9a-f]{2}){5,}/gi, name: 'hex-escaped string blob (obfuscated payload)', severity: 'medium' },
+    { pattern: /\[\s*["']constructor["']\s*\]/gi, name: 'accessing .constructor via brackets (sandbox-escape trick)', severity: 'high' },
+
+
+    { pattern: /document\.cookie/gi, name: 'document.cookie access', severity: 'high' },
+    { pattern: /localStorage\s*\.\s*getItem/gi, name: 'reading localStorage (may target tokens/session data)', severity: 'medium' },
+    { pattern: /localStorage\.clear\s*\(/gi, name: 'localStorage.clear()', severity: 'high' },
+    { pattern: /sessionStorage/gi, name: 'sessionStorage access', severity: 'medium' },
+    { pattern: /indexedDB/gi, name: 'indexedDB access', severity: 'medium' },
+    { pattern: /navigator\.credentials/gi, name: 'Credential Management API', severity: 'high' },
+    { pattern: /\btoken\b|\bpassword\b|\bwebhook\b/gi, name: "references to 'token' / 'password' / 'webhook'", severity: 'medium' },
+    { pattern: /discord(app)?\.com\/api\/webhooks/gi, name: 'Discord webhook URL (classic exfil vector)', severity: 'high' },
+
+
+    { pattern: /navigator\.clipboard/gi, name: 'clipboard read/write access', severity: 'high' },
+    { pattern: /addEventListener\s*\(\s*["']key(down|up|press)["']/gi, name: 'keystroke listener (possible keylogger)', severity: 'medium' },
+    { pattern: /addEventListener\s*\(\s*["']paste["']/gi, name: 'paste event listener', severity: 'medium' },
+
+
+    { pattern: /document\.write/gi, name: 'document.write', severity: 'high' },
+    { pattern: /location\s*(=|\.href\s*=|\.replace\s*\()/gi, name: 'page redirect (location change)', severity: 'high' },
+    { pattern: /window\.open/gi, name: 'window.open', severity: 'medium' },
+    { pattern: /<\s*script/gi, name: 'injecting a <script> tag', severity: 'high' },
+    { pattern: /<\s*iframe/gi, name: 'injecting an <iframe>', severity: 'medium' },
+
+
+    { pattern: /chrome\s*\./gi, name: 'Chrome extension API', severity: 'high' },
+    { pattern: /\bbrowser\s*\.\s*(runtime|storage|tabs|extension)/gi, name: 'browser extension API', severity: 'high' },
+    { pattern: /GM_[A-Za-z]+/gi, name: 'Greasemonkey/Tampermonkey privileged API', severity: 'high' },
+    { pattern: /unsafeWindow/gi, name: 'unsafeWindow', severity: 'high' },
+    { pattern: /prototype\s*\.\s*__/gi, name: 'prototype pollution attempt', severity: 'high' },
+    { pattern: /top\s*\.\s*(location|postMessage)|parent\s*\.\s*(location|postMessage)/gi, name: 'reaching into top/parent frame', severity: 'medium' },
+  ];
+
+  function scanForSuspiciousBlobs(code) {
+    const issues = [];
+    const blob = code.match(/[A-Za-z0-9+/]{80,}={0,2}/g);
+    if (blob && blob.length) {
+      issues.push({ name: 'long base64-like blob embedded in code', severity: 'medium' });
+    }
+    return issues;
+  }
+
+
+  let contextMenuEl = null;
+
+  function profilerShowRolesContextMenu(username, x, y) {
+    // Remove any existing context menu
+    if (contextMenuEl) { contextMenuEl.remove(); contextMenuEl = null; }
+
+    const roles = profilerFindAllRoles(username);
+    const msgCount = profilerMsgCounter.get(username) || 0;
+
+    const menu = document.createElement('div');
+    menu.id = 'fencord-context-menu';
+
+    let html = '';
+
+    // Header
+    html += '<div style="padding:10px 14px;border-bottom:1px solid var(--borders-and-separators);font-weight:700;font-size:13px;color:var(--text-primary);display:flex;align-items:center;gap:8px;">';
+    html += '<span style="font-size:14px;">🎭</span>';
+    html += profilerEscapeHtml(username);
+    html += '</div>';
+
+    // Roles section
+    if (roles.length > 0) {
+      html += '<div style="padding:10px 14px;">';
+      html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;font-weight:600;">Roles (' + roles.length + ')</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:4px;">';
+      roles.forEach(function(role) {
+        html += '<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:4px;background:var(--hover-overlay);">';
+        html += '<span style="width:6px;height:6px;border-radius:50%;background:var(--accent-vibrant);flex-shrink:0;"></span>';
+        html += '<span style="font-size:12px;color:var(--text-secondary);font-weight:500;">' + profilerEscapeHtml(role) + '</span>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    } else {
+      html += '<div style="padding:10px 14px;font-size:12px;color:var(--text-muted);font-style:italic;">No roles detected</div>';
+    }
+
+    // Stats
+    html += '<div style="padding:8px 14px;border-top:1px solid var(--borders-and-separators);display:flex;justify-content:space-between;align-items:center;">';
+    html += '<span style="font-size:11px;color:var(--text-muted);">💬 Messages</span>';
+    html += '<span style="font-size:12px;font-weight:700;color:var(--accent-vibrant);">' + msgCount + '</span>';
+    html += '</div>';
+
+    menu.innerHTML = html;
+
+    Object.assign(menu.style, {
+      position: 'fixed',
+      zIndex: '1000006',
+      background: 'var(--popups-and-modals)',
+      border: '1px solid var(--borders-and-separators)',
+      borderRadius: '10px',
+      minWidth: '200px',
+      maxWidth: '280px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+      fontFamily: 'inherit',
+      color: 'var(--text-primary)',
+      overflow: 'hidden',
+      opacity: '0',
+      transform: 'scale(0.95)',
+      transition: 'opacity 0.12s ease, transform 0.12s ease'
+    });
+
+    document.body.appendChild(menu);
+    contextMenuEl = menu;
+
+    // Position
+    const rect = menu.getBoundingClientRect();
+    let left = x;
+    let top = y;
+    if (left + rect.width > window.innerWidth - 10) left = window.innerWidth - rect.width - 10;
+    if (top + rect.height > window.innerHeight - 10) top = y - rect.height;
+    if (top < 10) top = 10;
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+
+    requestAnimationFrame(function() {
+      menu.style.opacity = '1';
+      menu.style.transform = 'scale(1)';
+    });
+  }
+
+  function profilerHideContextMenu() {
+    if (contextMenuEl) {
+      contextMenuEl.style.opacity = '0';
+      contextMenuEl.style.transform = 'scale(0.95)';
+      setTimeout(function() {
+        if (contextMenuEl) { contextMenuEl.remove(); contextMenuEl = null; }
+      }, 120);
+    }
+  }
+
+  function profilerOnContextMenu(e) {
+    const target = e.target;
+    // Check if right-clicked on a username
+    const usernameEl = target.closest('span.font-semibold.cursor-pointer');
+    if (!usernameEl) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const username = usernameEl.textContent.trim();
+    if (!username) return;
+
+    profilerShowRolesContextMenu(username, e.clientX, e.clientY);
+  }
+
+  function profilerOnDocumentClick(e) {
+    if (contextMenuEl && !contextMenuEl.contains(e.target)) {
+      profilerHideContextMenu();
+    }
+  }
+
+  // Hook into startProfiler to add context menu listener
+  const _originalStartProfiler = startProfiler;
+  startProfiler = function() {
+    _originalStartProfiler();
+    document.addEventListener('contextmenu', profilerOnContextMenu, true);
+    document.addEventListener('click', profilerOnDocumentClick, true);
+  };
+
+  const _originalStopProfiler = stopProfiler;
+  stopProfiler = function() {
+    _originalStopProfiler();
+    document.removeEventListener('contextmenu', profilerOnContextMenu, true);
+    document.removeEventListener('click', profilerOnDocumentClick, true);
+    profilerHideContextMenu();
+  };
+
+
+  function scanCustomPlugin(code) {
+    const found = [];
+    for (let i = 0; i < DANGEROUS_PATTERNS.length; i++) {
+      const p = DANGEROUS_PATTERNS[i];
+      p.pattern.lastIndex = 0;
+      if (p.pattern.test(code)) {
+        found.push({ name: p.name, severity: p.severity });
+      }
+    }
+    found.push(...scanForSuspiciousBlobs(code));
+
+    const high = found.filter(f => f.severity === 'high');
+    const medium = found.filter(f => f.severity === 'medium');
+    return { high, medium, all: found, blocked: high.length > 0 };
+  }
+
+  function getCustomPluginCode() {
+    return localStorage.getItem(CUSTOM_PLUGIN_KEY) || '';
+  }
+
+  function saveCustomPluginCode(code) {
+    localStorage.setItem(CUSTOM_PLUGIN_KEY, code);
+  }
+
+  function isCustomPluginEnabled() {
+    return localStorage.getItem(CUSTOM_PLUGIN_ENABLED_KEY) === 'true';
+  }
+
+  function setCustomPluginEnabled(enabled) {
+    localStorage.setItem(CUSTOM_PLUGIN_ENABLED_KEY, enabled ? 'true' : 'false');
+    if (enabled) runCustomPlugin();
+    else stopCustomPlugin();
+  }
+
+  function runCustomPlugin() {
+    stopCustomPlugin();
+    const code = getCustomPluginCode();
+    if (!code.trim()) return;
+
+    const scan = scanCustomPlugin(code);
+    if (scan.blocked) {
+      alert('Custom plugin blocked!\n\nDangerous patterns found:\n• ' + scan.high.map(i => i.name).join('\n• ') + '\n\nRemove these and try again.');
+      localStorage.setItem(CUSTOM_PLUGIN_ENABLED_KEY, 'false');
+      if (typeof refreshSettingsPanel === 'function') refreshSettingsPanel();
+      return;
+    }
+
+    try {
+      const wrapped = '(function() { "use strict"; const console = window.console; const document = window.document; const MutationObserver = window.MutationObserver; const setTimeout = window.setTimeout; const setInterval = window.setInterval; const clearTimeout = window.clearTimeout; const clearInterval = window.clearInterval; ' + code + ' })();';
+      const fn = new Function(wrapped);
+      const cleanup = fn();
+      if (typeof cleanup === 'function') {
+        customPluginCleanup = cleanup;
+      }
+    } catch (e) {
+      alert('Custom plugin error: ' + e.message);
+      localStorage.setItem(CUSTOM_PLUGIN_ENABLED_KEY, 'false');
+      if (typeof refreshSettingsPanel === 'function') refreshSettingsPanel();
+    }
+  }
+
+  function stopCustomPlugin() {
+    if (customPluginCleanup) {
+      try { customPluginCleanup(); } catch (e) {}
+      customPluginCleanup = null;
+    }
+  }
+
+  function initCustomPlugin() {
+    if (isCustomPluginEnabled()) runCustomPlugin();
+  }
+
+
+
+  function fencordProtectBlockedCount() {
+    return (typeof window.__fencordShieldBlockedCount === 'function')
+      ? window.__fencordShieldBlockedCount()
+      : 0;
+  }
+
+
+
+  const FAVORITE_PLUGINS_KEY = 'fencord-favorite-plugins';
+  let favStyleInjected = false;
+
+  function favInjectStyle() {
+    if (favStyleInjected) return;
+    favStyleInjected = true;
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes fencordFavPop {
+        0%   { transform: scale(1);   filter: drop-shadow(0 0 0 rgba(255,214,10,0)); }
+        35%  { transform: scale(1.6); filter: drop-shadow(0 0 6px rgba(255,214,10,0.9)); }
+        65%  { transform: scale(0.85);}
+        100% { transform: scale(1.15); filter: drop-shadow(0 0 3px rgba(255,214,10,0.6)); }
+      }
+      .fencord-fav-star.fencord-fav-pop { animation: fencordFavPop 0.45s ease; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function getFavoritePlugins() {
+    try { return JSON.parse(localStorage.getItem(FAVORITE_PLUGINS_KEY) || '[]'); }
+    catch (e) { return []; }
+  }
+
+  function saveFavoritePlugins(list) {
+    localStorage.setItem(FAVORITE_PLUGINS_KEY, JSON.stringify(list));
+  }
+
+  function isPluginFavorited(title) {
+    return getFavoritePlugins().includes(title);
+  }
+
+  function togglePluginFavorite(title) {
+    const list = getFavoritePlugins();
+    const idx = list.indexOf(title);
+    if (idx >= 0) { list.splice(idx, 1); saveFavoritePlugins(list); return false; }
+    list.unshift(title);
+    saveFavoritePlugins(list);
+    return true;
+  }
+
+  function favBuildStar(title) {
+    favInjectStyle();
+    const star = document.createElement('span');
+    star.className = 'fencord-fav-star';
+    star.title = 'Favorite this plugin';
+    const favored = isPluginFavorited(title);
+    star.textContent = favored ? '★' : '☆';
+    Object.assign(star.style, {
+      fontSize: '15px', lineHeight: '1', cursor: 'pointer', flexShrink: '0',
+      color: favored ? '#ffd60a' : 'var(--text-muted)', userSelect: 'none',
+      padding: '2px'
+    });
+    star.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nowFavored = togglePluginFavorite(title);
+      star.textContent = nowFavored ? '★' : '☆';
+      star.style.color = nowFavored ? '#ffd60a' : 'var(--text-muted)';
+      star.classList.remove('fencord-fav-pop');
+      void star.offsetWidth;
+      star.classList.add('fencord-fav-pop');
+      if (nowFavored) showToast('⭐ Added to Favorites', { color: 'var(--success-green)', duration: 1400 });
+    });
+    return star;
+  }
 
   const USERNAME_HIDER_KEY = 'fencord-username-hider-mode';
   const ALLOWED_HIDER_MODES = new Set(['off', 'mine', 'others', 'both']);
@@ -3429,9 +5048,13 @@
   }
 
   function init() {
+    // Prevent double initialization
+    if (window.__fencordInitialized) return;
+    Object.defineProperty(window, '__fencordInitialized', { value: true, enumerable: false, configurable: true });
+
     applyTheme(getSavedTheme());
     initFont();
-    createSettingsUI();
+    watchForSettingsButton();
     loadThemes();
     loadFonts();
     loadEffects();
@@ -3444,6 +5067,7 @@
     setBackgroundEffect(getBackgroundEffect());
     if (isCallTimerEnabled()) setCallTimerEnabled(true);
     initUsernameHider();
+    initCustomPlugin();
     createFencordWatermark();
     startUpdateChecker();
     showBootDisclaimerToast();
@@ -3452,11 +5076,12 @@
   if (document.body) {
     init();
   } else {
-    new MutationObserver((_, obs) => {
+    const fencordBootObserver = new MutationObserver((_, obs) => {
       if (document.body) {
         init();
         obs.disconnect();
       }
-    }).observe(document.documentElement, { childList: true, subtree: true });
+    });
+    fencordBootObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
 })();
