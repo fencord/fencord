@@ -1935,8 +1935,8 @@
         Object.assign(card.style, {
           display: 'flex',
           flexDirection: 'column',
-          gap: compact ? '0' : '10px',
-          padding: compact ? '10px 12px' : '14px',
+          gap: compact ? '0' : (build ? '6px' : '10px'),
+          padding: compact ? '10px 12px' : (build ? '10px 12px' : '14px'),
           borderRadius: '10px',
           background: 'var(--secondary-button)',
           border: '1px solid var(--borders-and-separators)',
@@ -1944,7 +1944,7 @@
           width: '100%',
           height: '100%',
           boxSizing: 'border-box',
-          minHeight: compact ? '52px' : (onToggle && !build ? '92px' : '0'),
+          minHeight: compact ? '52px' : (onToggle && !build ? '72px' : '0'),
           justifyContent: compact ? 'center' : 'flex-start',
           gridColumn: wide && !compact ? '1 / -1' : 'auto'
         });
@@ -2031,8 +2031,8 @@
           Object.assign(controls.style, {
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
-            marginTop: '2px'
+            gap: '6px',
+            marginTop: '0px'
           });
           build(controls, styleField);
           card.appendChild(controls);
@@ -2168,12 +2168,36 @@
       makePluginCard({
         icon: '🕵️',
         title: 'Username Hider',
-        desc: 'Scramble all usernames into random characters',
+        desc: 'Scramble usernames into random characters',
         enabled: getUsernameHiderMode() !== 'off',
         onToggle: () => {
           const next = getUsernameHiderMode() === 'off' ? 'both' : 'off';
           setUsernameHiderMode(next);
           return next !== 'off';
+        },
+        build: (controls, styleField) => {
+          const modeSelect = document.createElement('select');
+          styleField(modeSelect);
+          modeSelect.style.cursor = 'pointer';
+          modeSelect.style.fontSize = '12px';
+          modeSelect.style.padding = '6px 8px';
+          [
+            { id: 'off', label: 'Off' },
+            { id: 'mine', label: 'Hide mine only' },
+            { id: 'others', label: 'Hide others only' },
+            { id: 'both', label: 'Hide all' }
+          ].forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.id;
+            opt.textContent = o.label;
+            modeSelect.appendChild(opt);
+          });
+          modeSelect.value = getUsernameHiderMode();
+          modeSelect.addEventListener('change', () => {
+            setUsernameHiderMode(modeSelect.value);
+            renderPanel();
+          });
+          controls.appendChild(modeSelect);
         }
       });
       makePluginCard({
